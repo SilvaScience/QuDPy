@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-def multiplot(data=None, scan_range=None, labels=None, title_list=None, scale='linear', color_map='viridis',
+def multiplot(data=None, scan_range=None, labels=None, title_list=None, scale='linear', color_map='PuOr',
               interpolation='spline36', center_scale=True):
     """
     Plot multiple dataset for spectral and evolution data
@@ -165,13 +165,54 @@ def pop_plot(data=None, scan_range=None, labels=None, title_list=None, scale='li
     return
 
 
-def silva_plot(spectra_list=None, scan_range=None, labels=None, title_list=None, scale='linear', color_map='PuOr',
+def coor(data_x,data_y,z):
+    index_1= []
+    index_2= []
+    index_3= []
+    index_4= []
+    for a in range(len(data_x[0])):
+        
+        if data_x[0][a]>=z[0]:
+           index_1.append(a)
+           # print(a)
+        if data_x[0][a]<=z[1]:
+           index_2.append(a)
+
+        if data_y[a][0]>=z[2]:
+              index_3.append(a)
+
+        if data_y[a][0]<=z[3]:
+              index_4.append(a)
+
+    index = [index_1[0],index_2[len(index_2)-1],index_3[0],index_4[len(index_4)-1]]
+    return index
+        
+    
+
+def log_scale(z):
+    """
+    Simple function for rescaling the 2D input matrix to log scale.
+    Note: the negative numbers are downshifted by 1 and the positive numbers are upshifted by 1 to remove numbers
+    between -1 and 1.
+    """
+    x, y = np.shape(z)
+    for n in range(x):
+        for m in range(y):
+            if z[n, m] >= 0:
+                z[n, m] = np.log(z[n, m]+1)
+            else:
+                z[n, m] = -np.log(-z[n, m]+1)
+    return z
+
+
+def silva_plot(spectra_list=None,x_val=None,y_val=None, labels=None, title_list=None, scale='linear', color_map='PuOr',
                interpolation='spline36', center_scale=True, plot_sum=True, plot_quadrant='All', invert_y=True,
-               diagonals=[True, True]):
+               diagonals=[True, True],Zoom_coor=None):
     """
     Plot multiple spectra with real, imaginary and abs values
     :param data: List of spectra or dipole expectation values or any other variable of interest. Must be float data type
-    :param scan_range: The min and max of both axis in the format [xmin, xmax, ymin, ymax]
+    :param x_val: scan range of data in the x position
+    :param y_val: scan range of data in the y position
     :param labels: List of label for each axis
     :param title_list: List of titles for each plot
     :param scale: Scaling of the data points, two choices are 'linear' and 'log'
@@ -180,32 +221,48 @@ def silva_plot(spectra_list=None, scan_range=None, labels=None, title_list=None,
     :param center_scale: Shift individual datasets to sent center value to zero.
     :param plot_sum: plots the total sum of the input data sets with separate graphs for real, imag and abs values
     :param plot_quadrant: only plots the selected quadrant(s) for the graphs
+    :param plot_quadrant = 'Zoom' to make a zoom on the coordinates Zoom_coor
+    :param invert_y: flips the y-axis by converting -ve values to +ve
+    :param Zoom_coor: allows to Zoom in a specific tuple of coordinates in the format [xmin,xmax,ymin,ymax]
     :return: Does not return anything
+    
     """
     if spectra_list is None:
         print('Nothing to plot, kindly provide the data')
         return
-    if scan_range is None:
+    if x_val is None:
         print('Scan range not given. Using default range of 0 to 1')
-        scan_range = [0, 1, 0, 1]
+        x_val = [0, 1]
+    if y_val is None:
+        y_val = [0,1]
     if title_list is None:
         print('titles not given. Using default titles: simple numbers')
         title_list = [str(x + 1) for x in range(len(spectra_list)*3)]
-
+    x_i = int(np.where(x_val==0)[1][0])
+    y_i = int(np.where(x_val==0)[1][1])
     if plot_quadrant == '1':
-        spectra_list = [x[(len(x)//2 + len(x) % 2):, (len(x)//2 + len(x) % 2):] for x in spectra_list]
-        scan_range = [0, scan_range[1], 0, scan_range[3]]
+        spectra_list = [x[x_i:, y_i:] for x in spectra_list]
+        scan_range = [0, np.max(x_val), 0, np.max(y_val)]
     elif plot_quadrant == '2':
-        spectra_list = [x[:(len(x)//2 + len(x) % 2), (len(x)//2 + len(x) % 2):] for x in spectra_list]
-        scan_range = [scan_range[0], 0, 0, scan_range[3]]
-    elif plot_quadrant == '3':
-        spectra_list = [x[:(len(x)//2 + len(x) % 2), :(len(x)//2 + len(x) % 2)] for x in spectra_list]
-        scan_range = [scan_range[0], 0, scan_range[2], 0]
-    elif plot_quadrant == '4':
-        spectra_list = [x[(len(x)//2 + len(x) % 2):, :(len(x)//2 + len(x) % 2)] for x in spectra_list]
-        scan_range = [0, scan_range[1], scan_range[2], 0]
-    #print(np.shape(spectra_list[0]))
 
+        spectra_list = [x[x_i:, :y_i] for x in spectra_list]
+        scan_range = [np.min(x_val), 0, 0, np.max(y_val)]
+        
+        
+    elif plot_quadrant == '3':
+        spectra_list = [x[:x_i, :y_i] for x in spectra_list]
+        scan_range = [np.min(x_val), 0, np.min(y_val), 0]
+    elif plot_quadrant == '4':
+        spectra_list = [x[:x_i, y_i:] for x in spectra_list]
+        scan_range = [0, np.max(x_val), np.min(y_val), 0]
+    #print(np.shape(spectra_list[0]))
+    elif plot_quadrant == 'Zoom':
+        index = coor(x_val,y_val,Zoom_coor)
+        # print(index)
+        spectra_list = [x[index[2]:index[3],index[0]:index[1]] for x in spectra_list]
+        scan_range = [x_val[0][index[0]],x_val[0][index[1]],y_val[index[2]][0],y_val[index[3]][0]]
+    elif plot_quadrant == 'All':
+         scan_range = [np.min(x_val),np.max(x_val),np.min(y_val),np.max(y_val)] 
     if invert_y:
         spectra_list = [np.flip(x, 1) for x in spectra_list]
         scan_range[2], scan_range[3] = -scan_range[3], -scan_range[2]
@@ -253,7 +310,7 @@ def silva_plot(spectra_list=None, scan_range=None, labels=None, title_list=None,
         if k % 3 == 0:
             title = title_list[k//3]
 
-        #subplot_title = title + ' ' + titles[k % 3]
+
         subplot_title = (title + ' ' + titles[k % 3])
         axes[-1].set_title(subplot_title)
         # drawing diagonal lines
@@ -264,7 +321,6 @@ def silva_plot(spectra_list=None, scan_range=None, labels=None, title_list=None,
         im = plt.imshow(data[k], cmap=color_map, origin='lower', interpolation=interpolation, extent=scan_range,
                         aspect=1)
 
-        #plt.legend([subplot_title], loc='upper right')
 
         if labels:
             plt.xlabel(labels[0])

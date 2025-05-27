@@ -226,4 +226,4 @@ spectra_list, extent, f1, f2 = sys2.spectra(np.imag(response_list))
 
 
 
-qsave(response_list, 'dipole_6spin_6cavity_res_half_range_100_10_100_g_050')
+# qsave(response_list, 'dipole_6spin_6cavity_res_half_range_100_10_100_g_050')

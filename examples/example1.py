@@ -68,7 +68,7 @@ scan_id = [0, 2]
 response_list = []
 total_diagrams = rephasing+nonrephasing
 for k in range(6):
-    states, t1, t2, dipole = sys.coherence2d(time_delays, total_diagrams[k], scan_id, r=1, parallel=True)
+    states, t1, t2, dipole = sys.coherence2d(time_delays, total_diagrams[k], scan_id, r=1, parallel=False)
     response_list.append(1j*dipole)
 spectra_list, extent, f1, f2 = sys.spectra(np.imag(response_list), resolution=1)
 qsave(spectra_list, 'example1_res1_spectra_list')
@@ -81,24 +81,33 @@ pf.multiplot(np.imag(spectra_list), extent, ['E emission', 'E absorption'], ['R1
 
 rephasing_spectra = spectra_list[:3]
 rephasing_spectra.append(np.sum(spectra_list[:3], 0))
-pf.silva_plot(rephasing_spectra, scan_range=extent, labels=['E emission', 'E absorption'],
+pf.silva_plot(rephasing_spectra, f1,f2, labels=['E emission', 'E absorption'],
               title_list=['$R_1$', '$R_2$', '$R_3$', '$R_{rephasing}$'], scale='linear', color_map='PuOr',
               interpolation='spline36', center_scale=False, plot_sum=False, plot_quadrant='4', invert_y=False,
               diagonals=[True, True])
 
+#Example of the zoom feature
+rephasing_spectra = spectra_list[:3]
+rephasing_spectra.append(np.sum(spectra_list[:3], 0))
+pf.silva_plot(rephasing_spectra, f1,f2, labels=['E emission', 'E absorption'],
+              title_list=['$R_1$', '$R_2$', '$R_3$', '$R_{rephasing}$'], scale='linear', color_map='PuOr',
+              interpolation='spline36', center_scale=False, plot_sum=False, plot_quadrant='Zoom', invert_y=False,
+              diagonals=[True, True],Zoom_coor = [1.5,3,-3,-1.5])
+
+
 nonrephasing_spectra = spectra_list[3:]
 nonrephasing_spectra.append(np.sum(spectra_list[3:], 0))
-pf.silva_plot(nonrephasing_spectra, scan_range=extent, labels=['E emission', 'E absorption'],
+pf.silva_plot(nonrephasing_spectra, f1,f2, labels=['E emission', 'E absorption'],
               title_list=['$R_4$', '$R_5$', '$R_6$', '$R_{nonrephasing}$'], scale='linear', color_map='PuOr',
               interpolation='spline36', center_scale=False, plot_sum=False, plot_quadrant='1', invert_y=False,
               diagonals=[True, True])
 
-pf.silva_plot(rephasing_spectra, scan_range=extent, labels=['E emission', 'E absorption'],
+pf.silva_plot(rephasing_spectra, f1,f2, labels=['E emission', 'E absorption'],
               title_list=['$R_1$', '$R_2$', '$R_3$', '$R_{rephasing}$'], scale='log', color_map='PuOr',
               interpolation='spline36', center_scale=True, plot_sum=False, plot_quadrant='All', invert_y=True,
               diagonals=[False, True])
 
-pf.silva_plot(nonrephasing_spectra, scan_range=extent, labels=['E emission', 'E absorption'],
+pf.silva_plot(nonrephasing_spectra, f1,f2, labels=['E emission', 'E absorption'],
               title_list=['$R_4$', '$R_5$', '$R_6$', '$R_{nonrephasing}$'], scale='log', color_map='PuOr',
               interpolation='spline36', center_scale=True, plot_sum=False, plot_quadrant='All', invert_y=False,
               diagonals=[False, True])

@@ -311,8 +311,10 @@ class System:
 
         spectra = [np.fft.fftshift(np.fft.fft2(mu)) for mu in dipoles]
         # note the multiplication with 2pi is required because fft works with freq and qutip with omega
-        freq1 = np.fft.fftshift(np.fft.fftfreq(np.shape(spectra[0])[1], 1 / resolution)) * 2 * np.pi
-        freq2 = np.fft.fftshift(np.fft.fftfreq(np.shape(spectra[0])[0], 1 / resolution)) * 2 * np.pi
+        
+        freq1 = np.fft.fftshift(np.fft.fftfreq(np.shape(spectra[0])[1], 1 / resolution))[1:] * 2 * np.pi
+        freq2 = np.fft.fftshift(np.fft.fftfreq(np.shape(spectra[0])[0], 1 / resolution))[1:] * 2 * np.pi
+        print('Hola')
         extent = [min(freq1), max(freq1), min(freq2), max(freq2)]
         f1, f2 = np.meshgrid(freq1, freq2)
 

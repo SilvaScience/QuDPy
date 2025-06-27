@@ -11,8 +11,8 @@ gc = np.sqrt(w * w0)/2  # critical coupling strength
 
 kappa = 0.05
 gamma = 0.15
-M = 18    # number of fock basis for cavity mode. Use larger value for stronger couplings
-N = 6    # number of spins
+M = 2   # number of fock basis for cavity mode. Use larger value for stronger couplings
+N = 2    # number of spins
 j = N/2  # Total J for spins.
 n = N+1  # dimensionality of total spin operator.
 
@@ -217,7 +217,7 @@ response_list = []
 states_list = []
 diagrams = rephasing+nonrephasing
 for k in range(6):
-    states, t1, t2, dipole = sys2.coherence2d(time_delays, diagrams[k], scan_id, r=1/2, parallel=True)
+    states, t1, t2, dipole = sys2.coherence2d(time_delays, diagrams[k], scan_id, r=1/2, parallel=False)
     print('diagram ', k, ' done')
     response_list.append(1j*dipole)
     states_list.append(states)

@@ -305,6 +305,7 @@ def silva_plot(spectra_list=None,x_val=None,y_val=None, labels=None, title_list=
     axes = []
     titles = ['real', 'imag', 'abs']
     fig = plt.figure(figsize=(5*cols, 5*rows))
+    diag_range = scan_range[:]
     for k in range(num_plots):
         axes.append(fig.add_subplot(rows, cols, k + 1))
         if k % 3 == 0:
@@ -314,13 +315,29 @@ def silva_plot(spectra_list=None,x_val=None,y_val=None, labels=None, title_list=
         subplot_title = (title + ' ' + titles[k % 3])
         axes[-1].set_title(subplot_title)
         # drawing diagonal lines
+
+        if abs(np.max(x_val)) !=  abs(np.min(x_val)):
+                if abs(np.max(x_val)) >  abs(np.min(x_val)):
+                    diag_range[0] = np.min(x_val)
+                    diag_range[1] = abs(np.min(x_val))
+                else:
+                    diag_range[0] = -np.max(x_val)
+                    diag_range[1] = np.max(x_val)
+        if abs(np.max(y_val)) !=  abs(np.min(y_val)):
+                if abs(np.max(y_val)) >  abs(np.min(y_val)):
+                    diag_range[2] = np.min(y_val)
+                    diag_range[3] = abs(np.min(y_val))
+                else:
+                    diag_range[2] = -np.max(y_val)
+                    diag_range[3] = np.max(y_val)
+
+
         if diagonals[0]:
-            plt.plot([scan_range[0], scan_range[1]], [scan_range[3], scan_range[2]], '--', color="black", linewidth=0.5)
+                    plt.plot([diag_range[0], diag_range[1]], [diag_range[3], diag_range[2]], '--', color="black", linewidth=0.5)
         if diagonals[1]:
-            plt.plot([scan_range[0], scan_range[1]], [scan_range[2], scan_range[3]], '--', color="black", linewidth=0.5)
+            plt.plot([diag_range[0], diag_range[1]], [diag_range[2], diag_range[3]], '--', color="black", linewidth=0.5)
         im = plt.imshow(data[k], cmap=color_map, origin='lower', interpolation=interpolation, extent=scan_range,
                         aspect=1)
-
 
         if labels:
             plt.xlabel(labels[0])

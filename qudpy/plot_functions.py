@@ -266,7 +266,10 @@ def silva_plot(spectra_list=None,x_val=None,y_val=None, labels=None, title_list=
     if invert_y:
         spectra_list = [np.flip(x, 1) for x in spectra_list]
         scan_range[2], scan_range[3] = -scan_range[3], -scan_range[2]
-
+    if x_val % 2 == 0:
+        x_val = x_val[1:]
+    if y_val % 2 == 0:
+        y_val = y_val[1:]    
     # separating the real, imaginary and absolute values of each spectrum
     data_real = np.real(spectra_list)
     data_imag = np.imag(spectra_list)
@@ -306,6 +309,7 @@ def silva_plot(spectra_list=None,x_val=None,y_val=None, labels=None, title_list=
     titles = ['real', 'imag', 'abs']
     fig = plt.figure(figsize=(5*cols, 5*rows))
     diag_range = scan_range[:]
+    print(diag_range)
     for k in range(num_plots):
         axes.append(fig.add_subplot(rows, cols, k + 1))
         if k % 3 == 0:
@@ -317,6 +321,7 @@ def silva_plot(spectra_list=None,x_val=None,y_val=None, labels=None, title_list=
         # drawing diagonal lines
 
         if abs(np.max(x_val)) !=  abs(np.min(x_val)):
+
                 if abs(np.max(x_val)) >  abs(np.min(x_val)):
                     diag_range[0] = np.min(x_val)
                     diag_range[1] = abs(np.min(x_val))
@@ -324,6 +329,7 @@ def silva_plot(spectra_list=None,x_val=None,y_val=None, labels=None, title_list=
                     diag_range[0] = -np.max(x_val)
                     diag_range[1] = np.max(x_val)
         if abs(np.max(y_val)) !=  abs(np.min(y_val)):
+
                 if abs(np.max(y_val)) >  abs(np.min(y_val)):
                     diag_range[2] = np.min(y_val)
                     diag_range[3] = abs(np.min(y_val))
@@ -338,7 +344,7 @@ def silva_plot(spectra_list=None,x_val=None,y_val=None, labels=None, title_list=
             plt.plot([diag_range[0], diag_range[1]], [diag_range[2], diag_range[3]], '--', color="black", linewidth=0.5)
         im = plt.imshow(data[k], cmap=color_map, origin='lower', interpolation=interpolation, extent=scan_range,
                         aspect=1)
-
+        
         if labels:
             plt.xlabel(labels[0])
             plt.ylabel(labels[1])
@@ -348,3 +354,135 @@ def silva_plot(spectra_list=None,x_val=None,y_val=None, labels=None, title_list=
     plt.show()
 
     return
+
+def countour_plot(spectra_list=None,extent = None, labels=None, title_list=None, scale='linear', color_map='PuOr',
+               center_scale=True, plot_sum=True, plot_quadrant='All', invert_y=True,
+               diagonals=[True, True],Zoom_coor=None):
+
+    if spectra_list is None:
+        print('Nothing to plot, kindly provide the data')
+        return
+    if x_val is None:
+        print('Scan range not given. Using default range of 0 to 1')
+        x_val = [0, 1]
+    if y_val is None:
+        y_val = [0,1]
+    if title_list is None:
+        print('titles not given. Using default titles: simple numbers')
+        title_list = [str(x + 1) for x in range(len(spectra_list)*3)]
+    x_i = int(np.where(x_val==0)[1][0])
+    y_i = int(np.where(x_val==0)[1][1])
+    if plot_quadrant == '1':
+        spectra_list = [x[x_i:, y_i:] for x in spectra_list]
+        scan_range = [0, np.max(x_val), 0, np.max(y_val)]
+    elif plot_quadrant == '2':
+
+        spectra_list = [x[x_i:, :y_i] for x in spectra_list]
+        scan_range = [np.min(x_val), 0, 0, np.max(y_val)]
+        
+        
+    elif plot_quadrant == '3':
+        spectra_list = [x[:x_i, :y_i] for x in spectra_list]
+        scan_range = [np.min(x_val), 0, np.min(y_val), 0]
+    elif plot_quadrant == '4':
+        spectra_list = [x[:x_i, y_i:] for x in spectra_list]
+        scan_range = [0, np.max(x_val), np.min(y_val), 0]
+    #print(np.shape(spectra_list[0]))
+    elif plot_quadrant == 'Zoom':
+        index = coor(x_val,y_val,Zoom_coor)
+        # print(index)
+        spectra_list = [x[index[2]:index[3],index[0]:index[1]] for x in spectra_list]
+        scan_range = [x_val[0][index[0]],x_val[0][index[1]],y_val[index[2]][0],y_val[index[3]][0]]
+    elif plot_quadrant == 'All':
+         scan_range = [np.min(x_val),np.max(x_val),np.min(y_val),np.max(y_val)] 
+    if invert_y:
+        spectra_list = [np.flip(x, 1) for x in spectra_list]
+        scan_range[2], scan_range[3] = -scan_range[3], -scan_range[2]
+    if x_val % 2 == 0:
+        x_val = x_val[1:]
+    if y_val % 2 == 0:
+        y_val = y_val[1:]    
+    # separating the real, imaginary and absolute values of each spectrum
+    data_real = np.real(spectra_list)
+    data_imag = np.imag(spectra_list)
+    data_abs = np.abs(spectra_list)
+    data = []
+    for k in range(len(spectra_list)):
+        data.append(data_real[k])
+        data.append(data_imag[k])
+        data.append(data_abs[k])
+
+    if plot_sum:
+        data_sum = np.sum(spectra_list, 0)
+        data.append(data_sum.real)
+        data.append(data_sum.imag)
+        data.append(np.abs(data_sum))
+        title_list.append('Total')
+
+
+
+    num_plots = len(data) # number of plots (depends on the length of data list)
+    if num_plots <= 3:
+        rows = 1
+        cols = num_plots
+    else:
+        rows = int(np.ceil(num_plots / 3))
+        cols = 3
+
+    if center_scale:
+        print('centering data around zero')
+        data = [d-(np.min(d) + np.max(d))/2 for d in data]
+
+    if scale == 'log':
+        print('using log scale')
+        data = np.array([log_scale(s) for s in data])
+
+    axes = []
+    titles = ['real', 'imag', 'abs']
+    fig = plt.figure(figsize=(5*cols, 5*rows))
+    diag_range = scan_range[:]
+    print(diag_range)
+    for k in range(num_plots):
+        axes.append(fig.add_subplot(rows, cols, k + 1))
+        if k % 3 == 0:
+            title = title_list[k//3]
+
+
+        subplot_title = (title + ' ' + titles[k % 3])
+        axes[-1].set_title(subplot_title)
+        # drawing diagonal lines
+
+        if abs(np.max(x_val)) !=  abs(np.min(x_val)):
+
+                if abs(np.max(x_val)) >  abs(np.min(x_val)):
+                    diag_range[0] = np.min(x_val)
+                    diag_range[1] = abs(np.min(x_val))
+                else:
+                    diag_range[0] = -np.max(x_val)
+                    diag_range[1] = np.max(x_val)
+        if abs(np.max(y_val)) !=  abs(np.min(y_val)):
+
+                if abs(np.max(y_val)) >  abs(np.min(y_val)):
+                    diag_range[2] = np.min(y_val)
+                    diag_range[3] = abs(np.min(y_val))
+                else:
+                    diag_range[2] = -np.max(y_val)
+                    diag_range[3] = np.max(y_val)
+
+
+        if diagonals[0]:
+                    plt.plot([diag_range[0], diag_range[1]], [diag_range[3], diag_range[2]], '--', color="black", linewidth=0.5)
+        if diagonals[1]:
+            plt.plot([diag_range[0], diag_range[1]], [diag_range[2], diag_range[3]], '--', color="black", linewidth=0.5)
+        im = plt.imshow(data[k], cmap=color_map, origin='lower', interpolation=interpolation, extent=scan_range,
+                        aspect=1)
+        
+        if labels:
+            plt.xlabel(labels[0])
+            plt.ylabel(labels[1])
+        plt.colorbar(im, ax=axes[-1], shrink=0.7)
+
+    fig.tight_layout()
+    plt.show()
+    return 1
+

@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-
+from matplotlib.colors import TwoSlopeNorm
 
 def multiplot(data=None, scan_range=None, labels=None, title_list=None, scale='linear', color_map='PuOr',
               interpolation='spline36', center_scale=True):
@@ -238,6 +238,17 @@ def silva_plot(spectra_list=None,x_val=None,y_val=None, labels=None, title_list=
     if title_list is None:
         print('titles not given. Using default titles: simple numbers')
         title_list = [str(x + 1) for x in range(len(spectra_list)*3)]
+        
+        
+    if len(x_val) % 2 == 0:
+            x_val = x_val[1:,1:]
+            
+            for k in range(len(spectra_list)):
+                spectra_list[k]= spectra_list[k][1:,:]
+    if len(y_val) % 2 == 0:
+            y_val = y_val[1:,1:]    
+            for k in range(len(spectra_list)):
+                spectra_list[k]= spectra_list[k][:,1:]
     x_i = int(np.where(x_val==0)[1][0])
     y_i = int(np.where(x_val==0)[1][1])
     if plot_quadrant == '1':
@@ -266,10 +277,8 @@ def silva_plot(spectra_list=None,x_val=None,y_val=None, labels=None, title_list=
     if invert_y:
         spectra_list = [np.flip(x, 1) for x in spectra_list]
         scan_range[2], scan_range[3] = -scan_range[3], -scan_range[2]
-    if x_val % 2 == 0:
-        x_val = x_val[1:]
-    if y_val % 2 == 0:
-        y_val = y_val[1:]    
+
+
     # separating the real, imaginary and absolute values of each spectrum
     data_real = np.real(spectra_list)
     data_imag = np.imag(spectra_list)
@@ -309,7 +318,7 @@ def silva_plot(spectra_list=None,x_val=None,y_val=None, labels=None, title_list=
     titles = ['real', 'imag', 'abs']
     fig = plt.figure(figsize=(5*cols, 5*rows))
     diag_range = scan_range[:]
-    print(diag_range)
+        
     for k in range(num_plots):
         axes.append(fig.add_subplot(rows, cols, k + 1))
         if k % 3 == 0:
@@ -355,23 +364,31 @@ def silva_plot(spectra_list=None,x_val=None,y_val=None, labels=None, title_list=
 
     return
 
-def countour_plot(spectra_list=None,extent = None, labels=None, title_list=None, scale='linear', color_map='PuOr',
-               center_scale=True, plot_sum=True, plot_quadrant='All', invert_y=True,
-               diagonals=[True, True],Zoom_coor=None):
+def silva_plot_contourf(
+    spectra_list=None, x_val=None, y_val=None,
+    labels=None, title_list=None,
+    scale='linear', color_map='jet',
+    center_scale=False, plot_sum=True,
+    plot_quadrant='All', invert_y=True,
+    diagonals=[True, True],
+    Zoom_coor=None,
+    nlevels=12
+):
+
 
     if spectra_list is None:
-        print('Nothing to plot, kindly provide the data')
+        print('Nothing to plot')
         return
-    if x_val is None:
-        print('Scan range not given. Using default range of 0 to 1')
-        x_val = [0, 1]
-    if y_val is None:
-        y_val = [0,1]
-    if title_list is None:
-        print('titles not given. Using default titles: simple numbers')
-        title_list = [str(x + 1) for x in range(len(spectra_list)*3)]
+    
+
+    x_val = np.asarray(x_val)
+    y_val = np.asarray(y_val)
+
+        
     x_i = int(np.where(x_val==0)[1][0])
     y_i = int(np.where(x_val==0)[1][1])
+    if title_list is None:
+        title_list = [str(i + 1) for i in range(len(spectra_list))]
     if plot_quadrant == '1':
         spectra_list = [x[x_i:, y_i:] for x in spectra_list]
         scan_range = [0, np.max(x_val), 0, np.max(y_val)]
@@ -395,94 +412,106 @@ def countour_plot(spectra_list=None,extent = None, labels=None, title_list=None,
         scan_range = [x_val[0][index[0]],x_val[0][index[1]],y_val[index[2]][0],y_val[index[3]][0]]
     elif plot_quadrant == 'All':
          scan_range = [np.min(x_val),np.max(x_val),np.min(y_val),np.max(y_val)] 
+         
+    if len(x_val) % 2 == 0:
+                    x_val = x_val[1:,1:]
+                    
+                    for k in range(len(spectra_list)):
+                        spectra_list[k]= spectra_list[k][1:,:]
+                        print("Hola world")
+    if len(y_val) % 2 == 0:
+                    y_val = y_val[1:,1:]    
+                    for k in range(len(spectra_list)):
+                        spectra_list[k]= spectra_list[k][:,1:]
+
     if invert_y:
-        spectra_list = [np.flip(x, 1) for x in spectra_list]
-        scan_range[2], scan_range[3] = -scan_range[3], -scan_range[2]
-    if x_val % 2 == 0:
-        x_val = x_val[1:]
-    if y_val % 2 == 0:
-        y_val = y_val[1:]    
-    # separating the real, imaginary and absolute values of each spectrum
-    data_real = np.real(spectra_list)
-    data_imag = np.imag(spectra_list)
-    data_abs = np.abs(spectra_list)
+        spectra_list = [np.flip(s, axis=0) for s in spectra_list]
+        y_val = -y_val[::-1]
+    
+    # Separate components
     data = []
-    for k in range(len(spectra_list)):
-        data.append(data_real[k])
-        data.append(data_imag[k])
-        data.append(data_abs[k])
+    for s in spectra_list:
+        data.extend([np.real(s), np.imag(s), np.abs(s)])
 
     if plot_sum:
-        data_sum = np.sum(spectra_list, 0)
-        data.append(data_sum.real)
-        data.append(data_sum.imag)
-        data.append(np.abs(data_sum))
+        ssum = np.sum(spectra_list, axis=0)
+        data.extend([ssum.real, ssum.imag, np.abs(ssum)])
         title_list.append('Total')
 
-
-
-    num_plots = len(data) # number of plots (depends on the length of data list)
-    if num_plots <= 3:
-        rows = 1
-        cols = num_plots
-    else:
-        rows = int(np.ceil(num_plots / 3))
-        cols = 3
-
     if center_scale:
-        print('centering data around zero')
-        data = [d-(np.min(d) + np.max(d))/2 for d in data]
+        data = [d - 0.5 * (d.max() + d.min()) for d in data]
 
     if scale == 'log':
-        print('using log scale')
-        data = np.array([log_scale(s) for s in data])
+        data = [np.log10(np.abs(d) + 1e-12) for d in data]
 
-    axes = []
+    
+    num_plots = len(data)
+    rows = int(np.ceil(num_plots / 3))
+    X = np.linspace(scan_range[0],scan_range[1],num=np.shape(data[0])[1])
+    Y = np.linspace(scan_range[2],scan_range[3],num=np.shape(data[0])[0])
+
+    # fig, axes = plt.subplots(rows, cols, figsize=(5 * cols, 5 * rows))
+    # axes = np.atleast_1d(axes).flatten()
+    fig, axes = plt.subplots(
+    rows, 4,
+    figsize=(5 * 4, 5 * rows),
+    gridspec_kw={"width_ratios": [1, 1, 1, 0.06]}
+)
+
+    axes = np.atleast_2d(axes)
     titles = ['real', 'imag', 'abs']
-    fig = plt.figure(figsize=(5*cols, 5*rows))
-    diag_range = scan_range[:]
-    print(diag_range)
-    for k in range(num_plots):
-        axes.append(fig.add_subplot(rows, cols, k + 1))
-        if k % 3 == 0:
-            title = title_list[k//3]
-
-
-        subplot_title = (title + ' ' + titles[k % 3])
-        axes[-1].set_title(subplot_title)
-        # drawing diagonal lines
-
-        if abs(np.max(x_val)) !=  abs(np.min(x_val)):
-
-                if abs(np.max(x_val)) >  abs(np.min(x_val)):
-                    diag_range[0] = np.min(x_val)
-                    diag_range[1] = abs(np.min(x_val))
-                else:
-                    diag_range[0] = -np.max(x_val)
-                    diag_range[1] = np.max(x_val)
-        if abs(np.max(y_val)) !=  abs(np.min(y_val)):
-
-                if abs(np.max(y_val)) >  abs(np.min(y_val)):
-                    diag_range[2] = np.min(y_val)
-                    diag_range[3] = abs(np.min(y_val))
-                else:
-                    diag_range[2] = -np.max(y_val)
-                    diag_range[3] = np.max(y_val)
-
-
-        if diagonals[0]:
-                    plt.plot([diag_range[0], diag_range[1]], [diag_range[3], diag_range[2]], '--', color="black", linewidth=0.5)
-        if diagonals[1]:
-            plt.plot([diag_range[0], diag_range[1]], [diag_range[2], diag_range[3]], '--', color="black", linewidth=0.5)
-        im = plt.imshow(data[k], cmap=color_map, origin='lower', interpolation=interpolation, extent=scan_range,
-                        aspect=1)
+    titles = ['real', 'imag', 'abs']
+    # print(len(data[0]))
+    for g in range(rows):
+        group_data = data[3*g:3*g+3]
+        group_axes = axes[g, :3]   # columns 0–2
+        cax = axes[g, 3]           # column 3 (colorbar)
         
-        if labels:
-            plt.xlabel(labels[0])
-            plt.ylabel(labels[1])
-        plt.colorbar(im, ax=axes[-1], shrink=0.7)
+        # ---- shared normalization per row ----
+        vmin = min(d.min() for d in group_data)
+        vmax = max(d.max() for d in group_data)
+    
+        if center_scale:
+            norm = TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
+        else:
+            norm = None
 
+        for j, ax in enumerate(group_axes):
+            Z = group_data[j]
+    
+            cf = ax.contourf(
+                X, Y, Z,
+                levels=nlevels,
+                cmap=color_map,
+                norm=norm
+            )
+    
+            ax.contour(
+                X, Y, Z,
+                levels=nlevels,
+                colors='k',
+                linewidths=0.4,
+                alpha=0.7
+            )
+    
+            if diagonals[0]:
+                ax.plot([scan_range[0], scan_range[1]],
+                        [scan_range[3], scan_range[2]], '--k', lw=0.5)
+    
+            if diagonals[1]:
+                ax.plot([scan_range[0], scan_range[1]],
+                        [scan_range[2], scan_range[3]], '--k', lw=0.5)
+    
+            ax.set_title(f"{title_list[g]} {titles[j]}")
+    
+            if labels:
+                ax.set_xlabel(labels[0])
+                ax.set_ylabel(labels[1])
+    
+            ax.set_aspect('equal')
+    
+        # ---- colorbar in dedicated column (no resizing) ----
+        fig.colorbar(cf, cax=cax)
     fig.tight_layout()
     plt.show()
-    return 1
-
+    return 

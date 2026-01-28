@@ -239,58 +239,60 @@ def silva_plot(spectra_list=None,x_val=None,y_val=None, labels=None, title_list=
         print('titles not given. Using default titles: simple numbers')
         title_list = [str(x + 1) for x in range(len(spectra_list)*3)]
         
-        
+    
+    spectra_list_ = spectra_list[:]
+    
     if len(x_val) % 2 == 0:
             x_val = x_val[1:,1:]
-            
-            for k in range(len(spectra_list)):
-                spectra_list[k]= spectra_list[k][1:,:]
+            for k in range(len(spectra_list_)):
+                spectra_list_[k]= spectra_list_[k][1:,:]
     if len(y_val) % 2 == 0:
             y_val = y_val[1:,1:]    
-            for k in range(len(spectra_list)):
-                spectra_list[k]= spectra_list[k][:,1:]
+            for k in range(len(spectra_list_)):
+                spectra_list_[k]= spectra_list_[k][:,1:]
     x_i = int(np.where(x_val==0)[1][0])
     y_i = int(np.where(x_val==0)[1][1])
     if plot_quadrant == '1':
-        spectra_list = [x[x_i:, y_i:] for x in spectra_list]
+        spectra_list_ = [x[x_i:, y_i:] for x in spectra_list_]
         scan_range = [0, np.max(x_val), 0, np.max(y_val)]
     elif plot_quadrant == '2':
 
-        spectra_list = [x[x_i:, :y_i] for x in spectra_list]
+        spectra_list_ = [x[x_i:, :y_i] for x in spectra_list_]
         scan_range = [np.min(x_val), 0, 0, np.max(y_val)]
         
         
     elif plot_quadrant == '3':
-        spectra_list = [x[:x_i, :y_i] for x in spectra_list]
+        spectra_list_ = [x[:x_i, :y_i] for x in spectra_list_]
         scan_range = [np.min(x_val), 0, np.min(y_val), 0]
     elif plot_quadrant == '4':
-        spectra_list = [x[:x_i, y_i:] for x in spectra_list]
+        spectra_list_ = [x[:x_i, y_i:] for x in spectra_list_]
         scan_range = [0, np.max(x_val), np.min(y_val), 0]
+        print(scan_range)
     #print(np.shape(spectra_list[0]))
     elif plot_quadrant == 'Zoom':
         index = coor(x_val,y_val,Zoom_coor)
         # print(index)
-        spectra_list = [x[index[2]:index[3],index[0]:index[1]] for x in spectra_list]
+        spectra_list_ = [x[index[2]:index[3],index[0]:index[1]] for x in spectra_list_]
         scan_range = [x_val[0][index[0]],x_val[0][index[1]],y_val[index[2]][0],y_val[index[3]][0]]
     elif plot_quadrant == 'All':
          scan_range = [np.min(x_val),np.max(x_val),np.min(y_val),np.max(y_val)] 
     if invert_y:
-        spectra_list = [np.flip(x, 1) for x in spectra_list]
+        spectra_list_ = [np.flip(x, 1) for x in spectra_list_]
         scan_range[2], scan_range[3] = -scan_range[3], -scan_range[2]
 
 
     # separating the real, imaginary and absolute values of each spectrum
-    data_real = np.real(spectra_list)
-    data_imag = np.imag(spectra_list)
-    data_abs = np.abs(spectra_list)
+    data_real = np.real(spectra_list_)
+    data_imag = np.imag(spectra_list_)
+    data_abs = np.abs(spectra_list_)
     data = []
-    for k in range(len(spectra_list)):
+    for k in range(len(spectra_list_)):
         data.append(data_real[k])
         data.append(data_imag[k])
         data.append(data_abs[k])
 
     if plot_sum:
-        data_sum = np.sum(spectra_list, 0)
+        data_sum = np.sum(spectra_list_, 0)
         data.append(data_sum.real)
         data.append(data_sum.imag)
         data.append(np.abs(data_sum))
@@ -380,61 +382,86 @@ def silva_plot_contourf(
         print('Nothing to plot')
         return
     
-
+    spectra_list_ = spectra_list[:]
     x_val = np.asarray(x_val)
     y_val = np.asarray(y_val)
+    
+    if len(x_val) % 2 == 0 :
+                        x_val = x_val[1:,1:]
+                        for k in range(len(spectra_list_)):
+                            spectra_list_[k]= spectra_list_[k][1:,:]
 
-        
+    if len(y_val) % 2 == 0 :
+                        y_val = y_val[1:,1:]    
+                        for k in range(len(spectra_list_)):
+                            spectra_list_[k]= spectra_list_[k][:,1:]
+
+
+    if invert_y:
+            spectra_list_ = [np.flip(s, axis=0) for s in spectra_list_]
+            y_val = -y_val[::-1]
     x_i = int(np.where(x_val==0)[1][0])
-    y_i = int(np.where(x_val==0)[1][1])
+    y_i = int(np.where(y_val==0)[0][0])
+    Y_i = []
+    for a in range(len(y_val)):
+        Y_i.append(y_val[a][0])
+    
+
     if title_list is None:
-        title_list = [str(i + 1) for i in range(len(spectra_list))]
+        title_list = [str(i + 1) for i in range(len(spectra_list_))]
     if plot_quadrant == '1':
-        spectra_list = [x[x_i:, y_i:] for x in spectra_list]
+        X = x_val[0][x_i:]
+        Y = Y_i[y_i:]
+        spectra_list_ = [x[x_i:, y_i:] for x in spectra_list_]
         scan_range = [0, np.max(x_val), 0, np.max(y_val)]
     elif plot_quadrant == '2':
 
-        spectra_list = [x[x_i:, :y_i] for x in spectra_list]
+        X = x_val[0][:x_i+1]
+        Y = Y_i[y_i:]
+        
+        spectra_list_ = [x[x_i:, :y_i+1] for x in spectra_list_]
         scan_range = [np.min(x_val), 0, 0, np.max(y_val)]
         
         
     elif plot_quadrant == '3':
-        spectra_list = [x[:x_i, :y_i] for x in spectra_list]
+        X = x_val[0][:x_i+1]
+        Y = Y_i[:y_i+1]
+        spectra_list_ = [x[:x_i+1, :y_i+1] for x in spectra_list_]
         scan_range = [np.min(x_val), 0, np.min(y_val), 0]
+        
     elif plot_quadrant == '4':
-        spectra_list = [x[:x_i, y_i:] for x in spectra_list]
+        X = x_val[0][x_i:]
+        Y = Y_i[:y_i+1]
+        spectra_list_ = [x[:x_i+1, y_i:] for x in spectra_list_]
         scan_range = [0, np.max(x_val), np.min(y_val), 0]
-    #print(np.shape(spectra_list[0]))
+
     elif plot_quadrant == 'Zoom':
         index = coor(x_val,y_val,Zoom_coor)
-        # print(index)
-        spectra_list = [x[index[2]:index[3],index[0]:index[1]] for x in spectra_list]
-        scan_range = [x_val[0][index[0]],x_val[0][index[1]],y_val[index[2]][0],y_val[index[3]][0]]
-    elif plot_quadrant == 'All':
-         scan_range = [np.min(x_val),np.max(x_val),np.min(y_val),np.max(y_val)] 
-         
-    if len(x_val) % 2 == 0:
-                    x_val = x_val[1:,1:]
-                    
-                    for k in range(len(spectra_list)):
-                        spectra_list[k]= spectra_list[k][1:,:]
-                        print("Hola world")
-    if len(y_val) % 2 == 0:
-                    y_val = y_val[1:,1:]    
-                    for k in range(len(spectra_list)):
-                        spectra_list[k]= spectra_list[k][:,1:]
 
-    if invert_y:
-        spectra_list = [np.flip(s, axis=0) for s in spectra_list]
-        y_val = -y_val[::-1]
+        
+        X = x_val[0][index[0]:index[1]+1]
+        Y = Y_i[index[2]:index[3]+1]
+        
+        
+        spectra_list_ = [x[index[2]:index[3]+1,index[0]:index[1]+1] for x in spectra_list_]
+        scan_range = [x_val[0][index[0]],x_val[0][index[1]],y_val[index[2]][0],y_val[index[3]][0]]
+        
+        
+    elif plot_quadrant == 'All':
+         
+         scan_range = [np.min(x_val),np.max(x_val),np.min(y_val),np.max(y_val)] 
+         X = x_val
+         Y =  y_val
+
+
     
     # Separate components
     data = []
-    for s in spectra_list:
+    for s in spectra_list_:
         data.extend([np.real(s), np.imag(s), np.abs(s)])
 
     if plot_sum:
-        ssum = np.sum(spectra_list, axis=0)
+        ssum = np.sum(spectra_list_, axis=0)
         data.extend([ssum.real, ssum.imag, np.abs(ssum)])
         title_list.append('Total')
 
@@ -447,21 +474,15 @@ def silva_plot_contourf(
     
     num_plots = len(data)
     rows = int(np.ceil(num_plots / 3))
-    X = np.linspace(scan_range[0],scan_range[1],num=np.shape(data[0])[1])
-    Y = np.linspace(scan_range[2],scan_range[3],num=np.shape(data[0])[0])
 
-    # fig, axes = plt.subplots(rows, cols, figsize=(5 * cols, 5 * rows))
-    # axes = np.atleast_1d(axes).flatten()
     fig, axes = plt.subplots(
     rows, 4,
     figsize=(5 * 4, 5 * rows),
     gridspec_kw={"width_ratios": [1, 1, 1, 0.06]}
 )
-
     axes = np.atleast_2d(axes)
     titles = ['real', 'imag', 'abs']
     titles = ['real', 'imag', 'abs']
-    # print(len(data[0]))
     for g in range(rows):
         group_data = data[3*g:3*g+3]
         group_axes = axes[g, :3]   # columns 0–2
@@ -478,7 +499,6 @@ def silva_plot_contourf(
 
         for j, ax in enumerate(group_axes):
             Z = group_data[j]
-    
             cf = ax.contourf(
                 X, Y, Z,
                 levels=nlevels,

@@ -1,6 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import TwoSlopeNorm
+from matplotlib.colors import Normalize
+import matplotlib.cm as cm
+
 
 def multiplot(data=None, scan_range=None, labels=None, title_list=None, scale='linear', color_map='PuOr',
               interpolation='spline36', center_scale=True):
@@ -268,10 +271,10 @@ def silva_plot(spectra_list=None,x_val=None,y_val=None, labels=None, title_list=
         spectra_list_ = [x[:x_i, y_i:] for x in spectra_list_]
         scan_range = [0, np.max(x_val), np.min(y_val), 0]
         print(scan_range)
-    #print(np.shape(spectra_list[0]))
+
     elif plot_quadrant == 'Zoom':
         index = coor(x_val,y_val,Zoom_coor)
-        # print(index)
+
         spectra_list_ = [x[index[2]:index[3],index[0]:index[1]] for x in spectra_list_]
         scan_range = [x_val[0][index[0]],x_val[0][index[1]],y_val[index[2]][0],y_val[index[3]][0]]
     elif plot_quadrant == 'All':
@@ -281,7 +284,7 @@ def silva_plot(spectra_list=None,x_val=None,y_val=None, labels=None, title_list=
         scan_range[2], scan_range[3] = -scan_range[3], -scan_range[2]
 
 
-    # separating the real, imaginary and absolute values of each spectrum
+
     data_real = np.real(spectra_list_)
     data_imag = np.imag(spectra_list_)
     data_abs = np.abs(spectra_list_)
@@ -300,7 +303,7 @@ def silva_plot(spectra_list=None,x_val=None,y_val=None, labels=None, title_list=
 
 
 
-    num_plots = len(data) # number of plots (depends on the length of data list)
+    num_plots = len(data) 
     if num_plots <= 3:
         rows = 1
         cols = num_plots
@@ -329,7 +332,7 @@ def silva_plot(spectra_list=None,x_val=None,y_val=None, labels=None, title_list=
 
         subplot_title = (title + ' ' + titles[k % 3])
         axes[-1].set_title(subplot_title)
-        # drawing diagonal lines
+
 
         if abs(np.max(x_val)) !=  abs(np.min(x_val)):
 
@@ -454,8 +457,7 @@ def silva_plot_contourf(
          Y =  y_val
 
 
-    
-    # Separate components
+
     data = []
     for s in spectra_list_:
         data.extend([np.real(s), np.imag(s), np.abs(s)])
@@ -483,23 +485,24 @@ def silva_plot_contourf(
     axes = np.atleast_2d(axes)
     titles = ['real', 'imag', 'abs']
     titles = ['real', 'imag', 'abs']
+
     for g in range(rows):
         group_data = data[3*g:3*g+3]
-        group_axes = axes[g, :3]   # columns 0–2
-        cax = axes[g, 3]           # column 3 (colorbar)
-        
-        # ---- shared normalization per row ----
+        group_axes = axes[g, :3]   
+        cax = axes[g, 3]           
+
         vmin = min(d.min() for d in group_data)
         vmax = max(d.max() for d in group_data)
-    
         if center_scale:
             norm = TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
         else:
-            norm = None
+            norm = Normalize(vmin=vmin, vmax=vmax)
 
+        
         for j, ax in enumerate(group_axes):
+            
             Z = group_data[j]
-            cf = ax.contourf(
+            ax.contourf(
                 X, Y, Z,
                 levels=nlevels,
                 cmap=color_map,
@@ -530,8 +533,17 @@ def silva_plot_contourf(
     
             ax.set_aspect('equal')
     
-        # ---- colorbar in dedicated column (no resizing) ----
-        fig.colorbar(cf, cax=cax)
+
+        sm = cm.ScalarMappable(norm=norm, cmap=color_map)
+        sm.set_array([])
+        
+        cbar = fig.colorbar(sm, cax=cax)
+        
+
+        ticks = np.linspace(vmin, vmax, 5)
+        cbar.set_ticks(ticks)
+        cbar.ax.set_yticklabels([f"{t:.2f}" for t in ticks])
+
     fig.tight_layout()
     plt.show()
     return 

@@ -1,7 +1,13 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Jan 20 15:35:16 2026
+
+@author: simon
+"""
+
 from qutip import *
 import numpy as np
 import matplotlib.pyplot as plt
-import concurrent.futures
 
 class System:
     """
@@ -128,7 +134,6 @@ class System:
         # The loop only goes on till the first scan-able delay is encountered.
         for i in range(scan_id[0]):
             rho = self.apply_pulse(rho, diagram[i])  # applying pulse interaction
-
             # evolving after pulse interaction in case the delay is non-zero
             delta_t = time_delays[i]
             if delta_t > 0:
@@ -140,6 +145,7 @@ class System:
         # now applying the pulse and the delay that has to be scanned --> therefore saving all states.
         rho = self.apply_pulse(rho, diagram[scan_id[0]])
         delta_t = time_delays[scan_id[0]]
+        
         t_list = np.linspace(0, delta_t, int(delta_t*r))
         results = mesolve(self. H, rho, t_list, self.c_ops, [])
         states = results.states
@@ -151,14 +157,10 @@ class System:
             if delta_t > 0:
                 coherence_time = np.linspace(0, delta_t, int(delta_t*r))
                 # evolving each state in the list states and storing only the last state
-                if parallel:
-                    self.tlist = coherence_time
-                    states = pp.parallel_map(self.para_mesolve, states, only_last_state=True)
-                    #states = [pp.parfor(self.para_mesolve, states, only_last_state=True)]
-                    #print('shape of states is ', np.shape(states))
-                else:
-                    states = [mesolve(self.H, state, coherence_time, self.c_ops, []).states[-1] for state in states]
 
+                states = [mesolve(self.H, state, coherence_time, self.c_ops, []).states[-1] for state in states]
+
+        
         # Now at this point only last interaction and last scan-able delay is left.
         print('First scan done, starting second scan. Remaining time = First Scan Time x number of steps in second scan'
               + '/number of processors')
@@ -166,106 +168,32 @@ class System:
         delta_t = time_delays[scan_id[1]]
         t_list = np.linspace(0, delta_t, int(delta_t*r))
         final_states = []
-        if parallel:
-            self.tlist = t_list
-            final_states.append(pp.parfor(self.para_mesolve, states, only_last_state=False))
-            final_states = final_states[0]
-        else:
-            final_states = [mesolve(self.H, state, t_list, self.c_ops, []).states for state in states]
+
+        states = [mesolve(self.H, state, t_list, self.c_ops, []).states for state in states]
+        
+        i = scan_id[1]+1
+
+        while i < len(diagram):  
+            for s in range(len(states)):
+                    for h in range(len(states[s])):
+                        states[s][h] = self.apply_pulse(states[s][h], diagram[3])
+
+            delta_t = time_delays[i]
+            i =  i+1
+            if delta_t > 0:
+                coherence_time = np.linspace(0, delta_t, int(delta_t*r))
+                for s in range(len(states)):
+                        for h in range(len(states[s])):
+                            states[s][h] = mesolve(self.H, states[s][h], coherence_time, self.c_ops, []).states[-1]
+
+
+        final_states = states
 
         dipole = np.array([expect(self.u, final_states[x][:]) for x in range(len(final_states))])
-        #dipole = None
-        #plt.figure()
-        #plt.imshow(dipole.imag, origin='lower', interpolation='spline36', extent=[0, time_delays[scan_id[0]],
-        #                                                                          0, time_delays[scan_id[1]]])
-        #plt.show()
+
         print('second scan done')
         return final_states, np.linspace(0, time_delays[scan_id[0]], int(time_delays[scan_id[0]] * r)), t_list, dipole
 
- # TODO configure the parallel programing inplementation for coherence2D:
- # add %age completed and dataflow control
-    def newcoherence2d(self, time_delays=None, diagram=None, scan_id=None, r=10, parallel=False):
-        """
-        computes the 2D coherence plot for a single diagram with only two scan-able delays.
-        It can be parallelized if resources are available.
-        :param time_delays: list of time delays (Note: provide time delay for each interaction even if zero)
-        :param diagram: a double-sided diagram (ufss diagramGenerator format)
-        :param scan_id: a list indices for the time delays in interaction_times that have to be scanned
-        :param r: time resolution (steps per fs)
-        :param parallel: Parallelization control, True or False
-        :return: a list of density matrices, numpy array of first scan time and second scan time
-        """
-
-        if len(time_delays) != len(diagram):
-            print('time delays for each interaction not given')
-            print('number of time delays', len(time_delays), ' number of interactions ', len(diagram))
-            return None
-        if len(scan_id)!=2:
-            print('scan id not provided for two tunable delays')
-            return None
-
-        rho = self.rho  # taking the initial state from the system class
-
-        # go through interactions and time delays, if time delays are zero move to next iteration
-        # The loop only goes on till the first scan-able delay is encountered.
-        for i in range(scan_id[0]):
-            rho = self.apply_pulse(rho, diagram[i])  # applying pulse interaction
-
-            # evolving after pulse interaction in case the delay is non-zero
-            delta_t = time_delays[i]
-            if delta_t > 0:
-                coherence_time = np.linspace(0, delta_t, delta_t*r)
-                results = mesolve(self.H, rho, coherence_time, self.c_ops, [])
-                rho = results.states[-1]  # keeping only the last state
-
-        # At this point all the pulses and delays have been applied that do not need scanning
-        # now applying the pulse and the delay that has to be scanned --> therefore saving all states.
-        rho = self.apply_pulse(rho, diagram[scan_id[0]])
-        delta_t = time_delays[scan_id[0]]
-        t_list = np.linspace(0, delta_t, delta_t * r)
-        results = mesolve(self. H, rho, t_list, self.c_ops, [])
-        states = results.states
-
-        # Applying next set of interactions until a scan-able delay is encountered
-        for i in range(scan_id[0]+1, scan_id[1]):
-            states = [self.apply_pulse(state, diagram[i]) for state in states]  # applying interaction to all states
-            delta_t = time_delays[i]
-            if delta_t > 0:
-                coherence_time = np.linspace(0, delta_t, delta_t*r)
-                # evolving each state in the list states and storing only the last state
-                if parallel:
-                    self.tlist = coherence_time
-                    print(f'shape of states {np.shape(states)}')
-                    with concurrent.futures.ProcessPoolExecutor as executor:
-                        state_generator = executor.map(self.para_mesolve, states)
-                    states = []
-                    for state in state_generator:
-                        states.append(state)
-                    print(f'shape of states {np.shape(states)}')
-                else:
-                    states = [mesolve(self.H, state, coherence_time, self.c_ops, []).states[-1] for state in states]
-
-        # Now at this point only last interaction and last scan-able delay is left.
-        print('First scan done, starting second scan. Remaining time = First Scan Time x number of steps in second scan'
-              + '/number of processors')
-        states = [self.apply_pulse(state, diagram[scan_id[1]]) for state in states]
-        delta_t = time_delays[scan_id[1]]
-        t_list = np.linspace(0, delta_t, delta_t*r)
-        final_states = []
-        if parallel:
-            self.tlist = t_list
-            #final_states.append(pp.parfor(self.para_mesolve, states, only_last_state=False))
-            with concurrent.futures.ProcessPoolExecutor as executor:
-                final_state_generator = executor.map(self.para_mesolve, states, only_last_state=False)
-            for final_state in final_state_generator:
-                final_states.append(final_state)
-            print(f'shape of states {np.shape(final_states)}')
-        else:
-            final_states = [mesolve(self.H, state, t_list, self.c_ops, []).states for state in states]
-
-        dipole = np.array([expect(self.u, final_states[x][:]) for x in range(len(final_states))])
-        print('second scan done')
-        return final_states, np.linspace(0, time_delays[scan_id[0]], time_delays[scan_id[0]] * r), t_list, dipole
     # some small helper functions to keep the coherence2D function readable
     def apply_pulse(self, rho, x):
         """
@@ -311,10 +239,9 @@ class System:
 
         spectra = [np.fft.fftshift(np.fft.fft2(mu)) for mu in dipoles]
         # note the multiplication with 2pi is required because fft works with freq and qutip with omega
-        
-        freq1 = np.fft.fftshift(np.fft.fftfreq(np.shape(spectra[0])[1], 1 / resolution))[1:] * 2 * np.pi
-        freq2 = np.fft.fftshift(np.fft.fftfreq(np.shape(spectra[0])[0], 1 / resolution))[1:] * 2 * np.pi
-        print('Hola')
+       
+        freq1 = np.fft.fftshift(np.fft.fftfreq(np.shape(spectra[0])[1], 1 / resolution)) * 2 * np.pi
+        freq2 = np.fft.fftshift(np.fft.fftfreq(np.shape(spectra[0])[0], 1 / resolution)) * 2 * np.pi   
         extent = [min(freq1), max(freq1), min(freq2), max(freq2)]
         f1, f2 = np.meshgrid(freq1, freq2)
 

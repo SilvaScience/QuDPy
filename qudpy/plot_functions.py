@@ -270,7 +270,7 @@ def silva_plot(spectra_list=None,x_val=None,y_val=None, labels=None, title_list=
     elif plot_quadrant == '4':
         spectra_list_ = [x[:x_i, y_i:] for x in spectra_list_]
         scan_range = [0, np.max(x_val), np.min(y_val), 0]
-        print(scan_range)
+
 
     elif plot_quadrant == 'Zoom':
         index = coor(x_val,y_val,Zoom_coor)

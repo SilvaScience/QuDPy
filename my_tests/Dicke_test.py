@@ -40,20 +40,18 @@ n = N+1  # dimensionality of total spin operator.
 
 
 a = tensor(destroy(M), qeye(n))
-Sp = tensor(qeye(M), jmat(s, '+'))
-Sm = tensor(qeye(M), jmat(s, '-'))
-Sx = tensor(qeye(M), jmat(s, 'x'))
-Sy = tensor(qeye(M), jmat(s, 'y'))
-Sz = tensor(qeye(M), jmat(s, 'z'))
-sigp = tensor(qeye(M), jmat(s, '+'))
-sigm = tensor(qeye(M), jmat(s, '-'))
+Sp = tensor(qeye(M), -jmat(s, '+'))
+Sm = tensor(qeye(M), -jmat(s, '-'))
+Sx = tensor(qeye(M), -jmat(s, 'x'))
+Sy = tensor(qeye(M), -jmat(s, 'y'))
+Sz = tensor(qeye(M), -jmat(s, 'z'))
 mud = mu_str * (a + a.dag()) + mu_str * Sx
-ad = a + sigm
+ad = a + Sm
 
 
 H0 = hbar * (wc * a.dag() * a + wz * Sz)    # default basic Hamiltonian
 H1_no_rw = hbar * (a + a.dag()) * Sx/np.sqrt(N)  # intra-cavity interaction term (no rotating wave approx.)
-H1_rw = hbar * (a * sigp + a.dag() * sigm)/np.sqrt(N)  # intra-cavity interaction term (with rotating wave approx.)
+H1_rw = hbar * (a * Sp + a.dag() * Sm)/np.sqrt(N)  # intra-cavity interaction term (with rotating wave approx.)
 H_no_rw = H0 + g * H1_no_rw
 H_rw = H0 + g * H1_rw
 

@@ -5,6 +5,8 @@ Created on Tue Jan 20 15:35:16 2026
 @author: simon
 """
 
+import os
+
 from qutip import *
 import numpy as np
 import matplotlib.pyplot as plt
@@ -42,16 +44,16 @@ class System:
         self.tlist = tlist if tlist is not None else []  # list of time steps, default is empty
         self.diagonalized = diagonalize
         if self.diagonalized:
-            print("diagonalizing Hamiltonian and transforming everything into eigen-basis except rho")
+            # print("diagonalizing Hamiltonian and transforming everything into eigen-basis except rho")
             evals, evecs = self.H.eigenstates()
             self.a = self.a.transform(evecs)
             self.u = self.u.transform(evecs)
             self.H = self.H.transform(evecs)
             self.c_ops = [c.transform(evecs) for c in self.c_ops]
             self.e_ops = [e.transform(evecs) for e in self.e_ops]
-        print("system initialized")
+        # print("system initialized")
 
-    def diagram_donkey(self, interaction_times=None, diagrams=None, r=10):
+    def diagram_donkey(self, interaction_times=None, diagrams=None, r=10, plot_graph=True, title_graph=None, dir="results"):
         """
         Computes and plots a single evolution of the density matrix for a list of double-sided diagrams
         Mainly useful for inspection/instructional purposes.
@@ -59,6 +61,8 @@ class System:
         of local oscillator. Note, First pulse arrives at t=0
         :param diagrams: A list of double-sided diagrams (ufss diagramGenerator format)
         :param r: temporal resolution (time steps per fs)
+        :param plot_graph: whether to plot the graph or not
+        :param title_graph: filename for saving
         :return: None
         """
         if interaction_times is None:
@@ -69,7 +73,7 @@ class System:
 
         # setting up simulation
         total_diagrams, total_interactions = np.shape(diagrams)[:2]
-        print('total diagrams', total_diagrams, ', total interactions ', total_interactions)
+        # print('total diagrams', total_diagrams, ', total interactions ', total_interactions)
         for diagram in diagrams:  # loop over diagrams
             rho = self.rho  # setting initial density matrix (typically the ground state)
             states = []
@@ -77,7 +81,6 @@ class System:
             for pulse in range(len(interaction_times)-1):  # loop over the  pulses
                 # applying all the interactions of a given pulse
                 for x in diagram:  # loop over interactions in a diagram
-                    print(x)
                     if x[1] == pulse:
                         if x[0] == 'Ku':
                             rho = (self.a.dag()*rho)
@@ -89,8 +92,8 @@ class System:
                             rho = (rho*self.a.dag())
                 delta_t = interaction_times[pulse+1]-interaction_times[pulse]
                 results = mesolve(
-                    self.H, rho, np.linspace(interaction_times[pulse], interaction_times[pulse+1], delta_t*r),
-                    self.c_ops, [])
+                    self.H, rho, np.linspace(interaction_times[pulse], interaction_times[pulse+1], int(delta_t*r)),
+                    self.c_ops, _e_ops=[])
                 rho = results.states[-1]  # using last state of current simulation as initial state of next one
                 states += results.states
 
@@ -102,7 +105,14 @@ class System:
             plt.xlabel('Time (fs)')
             plt.ylabel('Value')
             plt.title('Expectation Values for '+str(diagram))
-        plt.show()
+
+        if title_graph is not None:
+            os.makedirs(dir, exist_ok=True)
+            plt.savefig(dir+'/donkey ' + title_graph + '.png')
+        if plot_graph:
+            plt.show()
+        else:
+            plt.close()
         return None
 
     def coherence2d(self, time_delays=None, diagram=None, scan_id=None, r=10, parallel=False):
@@ -138,7 +148,7 @@ class System:
             delta_t = time_delays[i]
             if delta_t > 0:
                 coherence_time = np.linspace(0, delta_t, int(delta_t*r))
-                results = mesolve(self.H, rho, coherence_time, self.c_ops, [])
+                results = mesolve(self.H, rho, coherence_time, self.c_ops, _e_ops=[])
                 rho = results.states[-1]  # keeping only the last state
 
         # At this point all the pulses and delays have been applied that do not need scanning
@@ -147,7 +157,7 @@ class System:
         delta_t = time_delays[scan_id[0]]
         
         t_list = np.linspace(0, delta_t, int(delta_t*r))
-        results = mesolve(self. H, rho, t_list, self.c_ops, [])
+        results = mesolve(self.H, rho, t_list, self.c_ops, _e_ops=[])
         states = results.states
 
         # Applying next set of interactions until a scan-able delay is encountered
@@ -158,18 +168,18 @@ class System:
                 coherence_time = np.linspace(0, delta_t, int(delta_t*r))
                 # evolving each state in the list states and storing only the last state
 
-                states = [mesolve(self.H, state, coherence_time, self.c_ops, []).states[-1] for state in states]
+                states = [mesolve(self.H, state, coherence_time, self.c_ops, _e_ops=[]).states[-1] for state in states]
 
         
         # Now at this point only last interaction and last scan-able delay is left.
-        print('First scan done, starting second scan. Remaining time = First Scan Time x number of steps in second scan'
-              + '/number of processors')
+        # print('First scan done, starting second scan. Remaining time = First Scan Time x number of steps in second scan'
+              # + '/number of processors')
         states = [self.apply_pulse(state, diagram[scan_id[1]]) for state in states]
         delta_t = time_delays[scan_id[1]]
         t_list = np.linspace(0, delta_t, int(delta_t*r))
         final_states = []
 
-        states = [mesolve(self.H, state, t_list, self.c_ops, []).states for state in states]
+        states = [mesolve(self.H, state, t_list, self.c_ops, _e_ops=[]).states for state in states]
         
         i = scan_id[1]+1
 
@@ -184,14 +194,101 @@ class System:
                 coherence_time = np.linspace(0, delta_t, int(delta_t*r))
                 for s in range(len(states)):
                         for h in range(len(states[s])):
-                            states[s][h] = mesolve(self.H, states[s][h], coherence_time, self.c_ops, []).states[-1]
+                            states[s][h] = mesolve(self.H, states[s][h], coherence_time, self.c_ops, _e_ops=[]).states[-1]
 
 
         final_states = states
 
         dipole = np.array([expect(self.u, final_states[x][:]) for x in range(len(final_states))])
 
-        print('second scan done')
+        # print('second scan done')
+        return final_states, np.linspace(0, time_delays[scan_id[0]], int(time_delays[scan_id[0]] * r)), t_list, dipole
+
+    def brcoherence2d(self, time_delays=None, diagram=None, scan_id=None, r=10, parallel=False):
+        """
+        computes the 2D coherence plot for a single diagram with only two scan-able delays.
+        It can be parallelized if resources are available.
+        :param time_delays: list of time delays (Note: provide time delay for each interaction even if zero)
+        :param diagram: a double-sided diagram (ufss diagramGenerator format)
+        :param scan_id: a list indices for the time delays in interaction_times that have to be scanned
+        :param r: time resolution (steps per fs)
+        :param parallel: Parallelization control, True or False
+        :return: a list of density matrices, numpy array of first scan time and second scan time
+        """
+
+        if len(time_delays) != len(diagram):
+            # print('time delays for each interaction not given')
+            # print('number of time delays', len(time_delays), ' number of interactions ', len(diagram))
+            return None
+        if len(scan_id) != 2:
+            # print('scan id not provided for two tunable delays')
+            return None
+
+        if parallel:
+            from qutip import parallel as pp
+
+        rho = self.rho  # taking the initial state from the system class
+
+        # go through interactions and time delays, if time delays are zero move to next iteration
+        # The loop only goes on till the first scan-able delay is encountered.
+        for i in range(scan_id[0]):
+            rho = self.apply_pulse(rho, diagram[i])  # applying pulse interaction
+            # evolving after pulse interaction in case the delay is non-zero
+            delta_t = time_delays[i]
+            if delta_t > 0:
+                coherence_time = np.linspace(0, delta_t, int(delta_t * r))
+                results = brmesolve(self.H, rho, coherence_time, self.c_ops, _e_ops=[])
+                rho = results.states[-1]  # keeping only the last state
+
+        # At this point all the pulses and delays have been applied that do not need scanning
+        # now applying the pulse and the delay that has to be scanned --> therefore saving all states.
+        rho = self.apply_pulse(rho, diagram[scan_id[0]])
+        delta_t = time_delays[scan_id[0]]
+
+        t_list = np.linspace(0, delta_t, int(delta_t * r))
+        results = brmesolve(self.H, rho, t_list, self.c_ops, e_ops=[])
+        states = results.states
+
+        # Applying next set of interactions until a scan-able delay is encountered
+        for i in range(scan_id[0] + 1, scan_id[1]):
+            states = [self.apply_pulse(state, diagram[i]) for state in states]  # applying interaction to all states
+            delta_t = time_delays[i]
+            if delta_t > 0:
+                coherence_time = np.linspace(0, delta_t, int(delta_t * r))
+                # evolving each state in the list states and storing only the last state
+
+                states = [brmesolve(self.H, state, coherence_time, self.c_ops, e_ops=[]).states[-1] for state in states]
+
+        # Now at this point only last interaction and last scan-able delay is left.
+        # print('First scan done, starting second scan. Remaining time = First Scan Time x number of steps in second scan'
+        #       + '/number of processors')
+        states = [self.apply_pulse(state, diagram[scan_id[1]]) for state in states]
+        delta_t = time_delays[scan_id[1]]
+        t_list = np.linspace(0, delta_t, int(delta_t * r))
+        final_states = []
+
+        states = [brmesolve(self.H, state, t_list, self.c_ops, e_ops=[]).states for state in states]
+
+        i = scan_id[1] + 1
+
+        while i < len(diagram):
+            for s in range(len(states)):
+                for h in range(len(states[s])):
+                    states[s][h] = self.apply_pulse(states[s][h], diagram[3])
+
+            delta_t = time_delays[i]
+            i = i + 1
+            if delta_t > 0:
+                coherence_time = np.linspace(0, delta_t, int(delta_t * r))
+                for s in range(len(states)):
+                    for h in range(len(states[s])):
+                        states[s][h] = brmesolve(self.H, states[s][h], coherence_time, self.c_ops, e_ops=[]).states[-1]
+
+        final_states = states
+
+        dipole = np.array([expect(self.u, final_states[x][:]) for x in range(len(final_states))])
+
+        # print('second scan done')
         return final_states, np.linspace(0, time_delays[scan_id[0]], int(time_delays[scan_id[0]] * r)), t_list, dipole
 
     # some small helper functions to keep the coherence2D function readable
@@ -220,9 +317,9 @@ class System:
         :return: list of states or state
         """
         if only_last_state:
-            return mesolve(self.H, rho, self.tlist, self.c_ops, []).states[-1]
+            return mesolve(self.H, rho, self.tlist, self.c_ops, _e_ops=[]).states[-1]
         else:
-            return mesolve(self.H, rho, self.tlist, self.c_ops, []).states
+            return mesolve(self.H, rho, self.tlist, self.c_ops, _e_ops=[]).states
 
     # some common plotting functions
 
@@ -247,7 +344,7 @@ class System:
 
         return spectra, extent, f1, f2
 
-    def linear_spec(self, scan_time: int, diagram=None, resolution=10):
+    def linear_spec(self, scan_time: int, diagram=None, r=10, plot_graph=True, title_graph=None, dir="results"):
         """
         For computing simple linear spectra from the system after any number of interaction in the start.
         Note: for increasing the frequency resolution, simply increase the scan_time. For decreasing the range of
@@ -255,10 +352,10 @@ class System:
         :param scan_time: Time interval to be simulated
         :param diagram: Double-sided diagram for calculating the system response. Note: all interactions contained in
         the diagram are applied at t=0. If diagram=None, then by default a 'Bu' interaction is applied at t=0.
-        :param resolution: Time resolution of simulation
+        :param r: Time resolution of simulation
         :return: dipole expectation value, time, spectrum and frequency lists.
         """
-        t_list = np.linspace(0, scan_time, resolution * scan_time)
+        t_list = np.linspace(0, scan_time, int(r * scan_time))
         if diagram:
             rho = self.rho
             for x in diagram:
@@ -266,7 +363,7 @@ class System:
         else:
             rho = self.rho * self.a
             # linear response is created by 'Bu' action on rho initial, alternatively we can apply
-        dipole = mesolve(self.H, rho, t_list, self.c_ops, [self.u]).expect[0]
+        dipole = mesolve(self.H, rho, t_list, self.c_ops, _e_ops=[self.u]).expect[0]
 
         plt.figure(figsize=(16, 6))
         plt.plot(t_list, np.imag(dipole))
@@ -275,19 +372,32 @@ class System:
         plt.xlabel('Time (fs)')
         plt.ylabel('Dipole')
         plt.title('Expectation Values for linear response')
-        plt.show()
+        if title_graph is not None:
+            os.makedirs(dir, exist_ok=True)
+            plt.savefig(dir+'/linear response ' + title_graph + '.png')
+        if plot_graph:
+            plt.show()
+        else:
+            plt.close()
 
         spec = np.fft.fftshift(np.fft.fft(dipole))
 
-        freq = np.fft.fftshift(np.fft.fftfreq(np.shape(spec)[0], 1 / resolution)) * 2 * np.pi
+        freq = np.fft.fftshift(np.fft.fftfreq(np.shape(spec)[0], 1 / r)) * 2 * np.pi
         plt.figure(figsize=(16, 6))
         plt.plot(freq, np.imag(spec))
         plt.plot(freq, np.real(spec))
         plt.legend(['Imaginary', 'Real'])
         plt.xlabel('Freq (eV)')
         plt.ylabel('Dipole')
+        plt.xlim(-np.pi, np.pi)
         plt.title('Spectrum from linear response (Bu)')
-        plt.show()
+        if title_graph is not None:
+            os.makedirs(dir, exist_ok=True)
+            plt.savefig(dir+'/linear spectrum ' + title_graph + '.png')
+        if plot_graph:
+            plt.show()
+        else:
+            plt.close()
         # print(spec[len(freq)//2:])
         # print(freq[len(freq)//2:])
         return dipole, t_list, spec, freq

@@ -23,7 +23,7 @@ T = 300  # temperature in K
 kT = T * kB
 beta = 1 / kT
 
-def spectrum_var(order=3, E_cav=[1.0], E=1.1, g=0.05, muc=1.0, muz=1.0,
+def spectrum_var(order=3, E_cav=[1.0, 1.1], E=1.1, g=0.05, muc=1.0, muz=1.0,
                  kappa=0.05, gamma_phase=0.15, gamma_decay=0.15, M=2, modes=1, N=1,
                  model="no_rw", n_th=0.25, decay="no_atomic", T2=None, directory="results",
                  anim="no"):    #choose order
@@ -49,7 +49,7 @@ def spectrum_var(order=3, E_cav=[1.0], E=1.1, g=0.05, muc=1.0, muz=1.0,
         :return: Does not return anything unless anim
         """
 
-    if len(E_cav) != modes:
+    if len(E_cav) != modes and modes != 1:
         print("Cavity modes and cavity energy dimensions don't match.")
         return None
 
@@ -121,8 +121,9 @@ def spectrum_var(order=3, E_cav=[1.0], E=1.1, g=0.05, muc=1.0, muz=1.0,
 
         H_exc_diag = qdiags([0, hbar * wz1, hbar * wz2])  # individual exciton diagonal term
 
-        # H_exc_raise = sig21_ind + sig31_ind  # individual exciton raising term
+        H_exc_raise = sig21_ind + sig31_ind  # individual exciton raising term
         H_exc_lower = sig12_ind + sig13_ind  # individual exciton lowering term
+        Sz_equiv = tensor([qeye(M)] + [qeye(M)] + [H_exc_diag for _ in range(N)])
         sig12 = [tensor([qeye(M)] + [qeye(M)] + [qeye(3) for _ in range(k)] + [sig12_ind] +
                         [qeye(3) for _ in range(N - k - 1)]) for k in range(N)]
         sig13 = [tensor([qeye(M)] + [qeye(M)] + [qeye(3) for _ in range(k)] + [sig13_ind] +
@@ -140,16 +141,20 @@ def spectrum_var(order=3, E_cav=[1.0], E=1.1, g=0.05, muc=1.0, muz=1.0,
             H_int = hbar * (a[0] * b12.dag() + a[0].dag() * b12 + a[1] * b13.dag() + a[1].dag() * b13) / np.sqrt(N)  # intra-cavity interaction term
 
         H0 = H_cav + H_exc
-        # ad = a + Sm
         H = H0 + g * H_int + H_exc_exc # total hamiltonian
+        # print("H0", H0)
+        # print("H_int", H_int)
         # print("H", H)
 
+        mud = muc * (sum(a) + a[0].dag() + a[1].dag()) + muz * (b12 + b13 + b12.dag() + b13.dag()) / np.sqrt(N)
+        ad = sum(a) / np.sqrt(2) + (b12 + b13) / np.sqrt(N)
+
         # collapse operators: cavity relaxation, cavity exc., collective dephasing, atomic relaxation, atomic exc.
-        c_cav_rel = np.sqrt(kappa * (n_th + 1)) * a
-        c_cav_exc = np.sqrt(kappa * n_th) * a.dag()
-        c_col_dep = np.sqrt(gamma_phase) * Sz
-        c_ato_rel = np.sqrt(gamma_decay * (n_th + 1)) * Sm
-        c_ato_exc = np.sqrt(gamma_decay * n_th) * Sp
+        c_cav_rel = np.sqrt(kappa * (n_th + 1)) * sum(a) / np.sqrt(2)
+        c_cav_exc = np.sqrt(kappa * n_th) * (a[0].dag() + a[1].dag()) / np.sqrt(2)
+        c_col_dep = np.sqrt(gamma_phase) * Sz_equiv
+        c_ato_rel = np.sqrt(gamma_decay * (n_th + 1)) * (b12 + b13) / np.sqrt(N)
+        c_ato_exc =np.sqrt(gamma_decay * n_th) * (b12.dag() + b13.dag()) / np.sqrt(N)
         c_ops = [c_cav_rel, c_cav_exc, c_col_dep]
 
     if T2 is None:

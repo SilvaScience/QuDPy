@@ -37,7 +37,7 @@ def spectrum_var(order=3, E0=1.0, E=1.1, g=0.05, muc=1.0, muz=1.0,
         :param kappa: cavity decay strength
         :param gamma_phase: atomic dephasing strength
         :param gamma_decay: atomic decay strength
-        :param M: # number of fock basis for cavity mode. Use larger value for stronger couplings
+        :param M: # number of fock basis states for cavity mode. Use larger value for stronger couplings
         :param N: # number of spins
         :param model: "no_rw" for no rotating wave approximation, "rw" for rotating wave approximation
         :param n_th: average number thermal photons in the bath coupling to the resonator

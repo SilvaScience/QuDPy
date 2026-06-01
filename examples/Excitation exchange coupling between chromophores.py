@@ -55,8 +55,10 @@ kB = 8.617333262*1e-5  # Boltzmann constant eV/K
 T = 300  # temperature in K
 kT = T*kB
 beta = 1/kT
+print(beta)
 n1 = 1/(np.exp(E1*beta)-1)  # <n1>, thermal populations of the uncoupled states
 n2 = 1/(np.exp(E2*beta)-1)  # <n2>, thermal populations of the uncoupled states
+print(n1, n2)
 c1 = np.sqrt(kappa*(n1+1))*a  # relaxation operators
 c2 = np.sqrt(kappa*(n2+1))*b  # relaxation operators
 c3 = np.sqrt(kappa*n1)*a.dag()  # excitation operators
@@ -94,7 +96,7 @@ nonrephasing_spectra.append(np.sum(spectra_list[3:], 0))
 pf.silva_plot_contourf(rephasing_spectra, f1,f2, labels=['E emission', 'E absorption'],
               scale='linear', color_map='PuOr',title_list=['$R_1$', '$R_2$', '$R_3$', '$R_{rephasing}$'],
               center_scale=False, plot_sum=False, plot_quadrant='Zoom', invert_y=False,
-              diagonals=[True, False],nlevels=30,zoom_coor=[-2.8,-2,2,2.8])
+              diagonals=[True, False],nlevels=30,zoom_coor=[-2.8,-1.8,1.8,2.8])
 # pf.silva_plot_contourf(nonrephasing_spectra, f1,f2, labels=['E emission', 'E absorption'],
 #               scale='linear', color_map='jet',title_list=['$R_4$', '$R_5$', '$R_6$', '$R_{nonrephasing}$'],
 #               center_scale=False, plot_sum=False, plot_quadrant='All', invert_y=False,

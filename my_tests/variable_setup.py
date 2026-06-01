@@ -78,7 +78,8 @@ def spectrum_var(order=3, E0=1.0, E=1.1, g=0.05, muc=1.0, muz=1.0,
     H = H0 + g * H1 # total hamiltonian
     # print(hbar * wc * a.dag() * a)
     # print(hbar * wz * Sz)
-    # print(H)
+    print(H0)
+    print(H)
 
     # collapse operators: cavity relaxation, cavity exc., collective dephasing, atomic relaxation, atomic exc.
     c_cav_rel = np.sqrt(kappa * (n_th + 1)) * a

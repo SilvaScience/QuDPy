@@ -61,7 +61,6 @@ def spectrum_var(order=3, E0=1.0, E=1.1, g=0.05, muc=1.0, muz=1.0,
     Sp = tensor(qeye(M), -jmat(s, '+'))
     Sm = tensor(qeye(M), -jmat(s, '-'))
     Sx = tensor(qeye(M), -jmat(s, 'x'))
-    Sy = tensor(qeye(M), -jmat(s, 'y'))
     Sz = tensor(qeye(M), -jmat(s, 'z'))
     mud = muc * (a + a.dag()) + muz * Sx
     ad = a + Sm

@@ -23,9 +23,10 @@ T = 300  # temperature in K
 kT = T * kB
 beta = 1 / kT
 
+
 def spectrum_var(order=3, E_cav=[1.0, 1.1], E=1.1, g=0.05, muc=1.0, muz=1.0,
                  kappa=0.05, gamma_phase=0.15, gamma_decay=0.15, M=2, modes=1, N=1,
-                 model="no_rw", n_th=0.25, decay="no_atomic", T2=None, directory="results",
+                 model="rw", n_th=0.25, decay="no_atomic", T2=None, directory="results",
                  anim="no"):    #choose order
     """
         Plot multiple spectra with real, imaginary and abs values
@@ -53,6 +54,11 @@ def spectrum_var(order=3, E_cav=[1.0, 1.1], E=1.1, g=0.05, muc=1.0, muz=1.0,
         print("Cavity modes and cavity energy dimensions don't match.")
         return None
 
+    if T2 is None:
+        T2 = 10
+    if g is None:
+        g = 0.05
+
     if modes == 1:
         if isinstance(E_cav, list):
             wc = E_cav[0]/hbar # cavity resonant frequency
@@ -61,84 +67,73 @@ def spectrum_var(order=3, E_cav=[1.0, 1.1], E=1.1, g=0.05, muc=1.0, muz=1.0,
         wz2 = E/hbar * 1.1
         gc = np.sqrt((wz1 + wz2) * wc / 2)/2  # critical coupling strength
 
-        o12, o13 = 0.5, 0.55 # transition strength
-        sig12_ind, sig13_ind = Qobj([[0, o12, 0], [0, 0, 0], [0, 0, 0]]), Qobj([[0, 0, o13], [0, 0, 0], [0, 0, 0]])
-        sig21_ind, sig31_ind = sig12_ind.dag(), sig13_ind.dag()
+        s = N / 2  # Total J for spins.
+        n = N + 1  # dimensionality of total spin operator.
 
-        a = tensor([destroy(M)] + [qeye(3) for _ in range(N)]) # list of lowering operators for cavity. Index is # of cavity
+        a = tensor(destroy(M), qeye(n), qeye(n))
+        Sp1 = tensor(qeye(M), -jmat(s, '+'), qeye(n))
+        Sm1 = tensor(qeye(M), -jmat(s, '-'), qeye(n))
+        Sx1 = tensor(qeye(M), -jmat(s, 'x'), qeye(n))
+        Sz1 = tensor(qeye(M), -jmat(s, 'z'), qeye(n))
+        Sp2 = tensor(qeye(M), qeye(n), -jmat(s, '+'))
+        Sm2 = tensor(qeye(M), qeye(n), -jmat(s, '-'))
+        Sx2 = tensor(qeye(M), qeye(n), -jmat(s, 'x'))
+        Sz2 = tensor(qeye(M), qeye(n), -jmat(s, 'z'))
+        mud = muc * (a + a.dag()) + muz * Sx1 + muz * Sx2
+        ad = a + Sm1 + Sm2
+
         H_cav = hbar * wc * a.dag() * a # cavity term
-
-        H_exc_diag = qdiags([0, hbar * wz1, hbar * wz2])  # individual exciton diagonal term
-        Sz_equiv = tensor([qeye(M)] + [H_exc_diag for _ in range(N)])
-        H_exc_raise = sig21_ind + sig31_ind  # individual exciton raising term
-        H_exc_lower = sig12_ind + sig13_ind  # individual exciton lowering term
-        sig12 = [tensor([qeye(M)] + [qeye(3) for _ in range(k)] + [sig12_ind] +
-                     [qeye(3) for _ in range(N-k-1)]) for k in range(N)]
-        sig13 = [tensor([qeye(M)] + [qeye(3) for _ in range(k)] + [sig13_ind] +
-                        [qeye(3) for _ in range(N - k - 1)]) for k in range(N)]
-        b = [sig12[k] + sig13[k] for k in range(N)] # list of lowering operators for excitons. Index is # of exciton
-        bdag = [k.dag() for k in b]
-        H_exc = tensor([qeye(M)] + [H_exc_diag for _ in range(N)])  # global exciton term
+        H_exc = hbar * (wz1 * Sz1 + wz2 * Sz2)
 
         H_exc_exc = 0 # exciton-exciton interaction term
 
         if model == "no_rw":
-            H_int = hbar * (a + a.dag()) * sum([k + k.dag() for k in b])/np.sqrt(N)  # intra-cavity interaction term
+            H_int = hbar * (a + a.dag()) * (Sx1 + Sx2)/np.sqrt(2*N)  # intra-cavity interaction term
         elif model == "rw":
-            H_int = hbar * (a * sum([k.dag() for k in b]) + a.dag()) * sum([k for k in b])/np.sqrt(N)
+            H_int = hbar * (a * (Sp1 + Sp2) + a.dag() * (Sm1 + Sm2))/np.sqrt(2*N)
 
         H0 = H_cav + H_exc
         H = H0 + g * H_int + H_exc_exc # total hamiltonian
         # print("H0", H0)
         # print("H_int", H_int)
         # print("H", H)
-
-        mud = muc * (a + a.dag()) + muz * sum([k + k.dag() for k in b]) / np.sqrt(N)
-        ad = a + sum(b) / np.sqrt(N)
 
         # collapse operators: cavity relaxation, cavity exc., collective dephasing, atomic relaxation, atomic exc.
         c_cav_rel = np.sqrt(kappa * (n_th + 1)) * a
         c_cav_exc = np.sqrt(kappa * n_th) * a.dag()
-        c_col_dep = np.sqrt(gamma_phase) * Sz_equiv
-        c_ato_rel = np.sqrt(gamma_decay * (n_th + 1)) * sum(b) / np.sqrt(N)
-        c_ato_exc =np.sqrt(gamma_decay * n_th) * sum(bdag) / np.sqrt(N)
+        c_col_dep = np.sqrt(gamma_phase) * (Sz1 + Sz2) / np.sqrt(2)
+        c_ato_rel = np.sqrt(gamma_decay * (n_th + 1)) * (Sm1 + Sm2) / np.sqrt(2*N)
+        c_ato_exc =np.sqrt(gamma_decay * n_th) * (Sp1 + Sp2) / np.sqrt(2*N)
         c_ops = [c_cav_rel, c_cav_exc, c_col_dep]
 
-    elif modes == 2:
-        wc = [e / hbar for e in E_cav]  # cavity resonant frequency
-        wz1 = E / hbar  # atom resonant frequency
-        wz2 = E / hbar * 1.1
+    if modes == 0:
+        if isinstance(E_cav, list):
+            wc = E_cav[0]/hbar # cavity resonant frequency
+        else: wc = E_cav/hbar
+        wz1 = E/hbar # atom resonant frequency
+        wz2 = E/hbar * 1.1
+        gc = np.sqrt((wz1 + wz2) * wc / 2)/2  # critical coupling strength
 
-        o12 = o13 = 0.5  # transition strength
-        sig12_ind, sig13_ind = Qobj([[0, o12, 0], [0, 0, 0], [0, 0, 0]]), Qobj([[0, 0, o13], [0, 0, 0], [0, 0, 0]])
-        sig21_ind, sig31_ind = sig12_ind.dag(), sig13_ind.dag()
+        s = N / 2  # Total J for spins.
+        n = N + 1  # dimensionality of total spin operator.
 
-        a = [tensor([destroy(M)] + [qeye(M)] + [qeye(3) for _ in range(N)]),
-             tensor([qeye(M)] + [destroy(M)] + [qeye(3) for _ in range(N)])] # list of lowering operators for cavity. Index is # of cavity
-        H_cav = hbar * sum([wc[k] * a[k].dag() * a[k] for k in range(2)])  # cavity term
+        a = tensor(destroy(M), qeye(n), qeye(n))
+        Sp1 = tensor(qeye(M), -jmat(s, '+'), qeye(n))
+        Sm1 = tensor(qeye(M), -jmat(s, '-'), qeye(n))
+        Sx1 = tensor(qeye(M), -jmat(s, 'x'), qeye(n))
+        Sz1 = tensor(qeye(M), -jmat(s, 'z'), qeye(n))
+        mud = muc * (a + a.dag()) + muz * Sx1 + muz * Sx2
+        ad = a + Sm1 + Sm2
 
-        # mud = muc * (a + a.dag()) + muz * Sx
+        H_cav = hbar * wc * a.dag() * a # cavity term
+        H_exc = hbar * (wz1 * Sz1 + wz2 * Sz2)
 
-        H_exc_diag = qdiags([0, hbar * wz1, hbar * wz2])  # individual exciton diagonal term
-
-        H_exc_raise = sig21_ind + sig31_ind  # individual exciton raising term
-        H_exc_lower = sig12_ind + sig13_ind  # individual exciton lowering term
-        Sz_equiv = tensor([qeye(M)] + [qeye(M)] + [H_exc_diag for _ in range(N)])
-        sig12 = [tensor([qeye(M)] + [qeye(M)] + [qeye(3) for _ in range(k)] + [sig12_ind] +
-                        [qeye(3) for _ in range(N - k - 1)]) for k in range(N)]
-        sig13 = [tensor([qeye(M)] + [qeye(M)] + [qeye(3) for _ in range(k)] + [sig13_ind] +
-                        [qeye(3) for _ in range(N - k - 1)]) for k in range(N)]
-
-        b12 = sum([sig12[k] for k in range(N)])  # lowering for mode 1 of excitons. 2nd excited with 1st mode
-        b13 = sum([sig13[k] for k in range(N)])  # lowering for mode 2 of excitons. 3rd excited with 2nd mode
-        H_exc = tensor([qeye(M)]+ [qeye(M)] + [H_exc_diag for _ in range(N)])  # global exciton term
-
-        H_exc_exc = 0  # exciton-exciton interaction term
+        H_exc_exc = 0 # exciton-exciton interaction term
 
         if model == "no_rw":
-            H_int = hbar * ((a[0] + a[0].dag()) * (b12 + b12.dag()) + (a[1] + a[1].dag()) * (b13 + b13.dag())) / np.sqrt(N)  # intra-cavity interaction term
+            H_int = hbar * (a + a.dag()) * (Sx1 + Sx2)/np.sqrt(2*N)  # intra-cavity interaction term
         elif model == "rw":
-            H_int = hbar * (a[0] * b12.dag() + a[0].dag() * b12 + a[1] * b13.dag() + a[1].dag() * b13) / np.sqrt(N)  # intra-cavity interaction term
+            H_int = hbar * (a * (Sp1 + Sp2) + a.dag() * (Sm1 + Sm2))/np.sqrt(2*N)
 
         H0 = H_cav + H_exc
         H = H0 + g * H_int + H_exc_exc # total hamiltonian
@@ -146,29 +141,20 @@ def spectrum_var(order=3, E_cav=[1.0, 1.1], E=1.1, g=0.05, muc=1.0, muz=1.0,
         # print("H_int", H_int)
         # print("H", H)
 
-        mud = muc * (sum(a) + a[0].dag() + a[1].dag()) + muz * (b12 + b13 + b12.dag() + b13.dag()) / np.sqrt(N)
-        ad = sum(a) / np.sqrt(2) + (b12 + b13) / np.sqrt(N)
-
         # collapse operators: cavity relaxation, cavity exc., collective dephasing, atomic relaxation, atomic exc.
-        c_cav_rel = np.sqrt(kappa * (n_th + 1)) * sum(a) / np.sqrt(2)
-        c_cav_exc = np.sqrt(kappa * n_th) * (a[0].dag() + a[1].dag()) / np.sqrt(2)
-        c_col_dep = np.sqrt(gamma_phase) * Sz_equiv
-        c_ato_rel = np.sqrt(gamma_decay * (n_th + 1)) * (b12 + b13) / np.sqrt(N)
-        c_ato_exc =np.sqrt(gamma_decay * n_th) * (b12.dag() + b13.dag()) / np.sqrt(N)
+        c_cav_rel = np.sqrt(kappa * (n_th + 1)) * a
+        c_cav_exc = np.sqrt(kappa * n_th) * a.dag()
+        c_col_dep = np.sqrt(gamma_phase) * (Sz1 + Sz2) / np.sqrt(2)
+        c_ato_rel = np.sqrt(gamma_decay * (n_th + 1)) * (Sm1 + Sm2) / np.sqrt(2*N)
+        c_ato_exc =np.sqrt(gamma_decay * n_th) * (Sp1 + Sp2) / np.sqrt(2*N)
         c_ops = [c_cav_rel, c_cav_exc, c_col_dep]
 
-    if T2 is None:
-        T2 = 10
-    if g is None:
-        g = 0.05
-
     title = "exc_exc_model"
-
 
     # print("dimensionality of Hilbert-space: ", H.shape)
 
     # setting up system
-    rho = tensor([fock_dm(M, 0) for _ in range(modes)] + [fock_dm(3, 0) for _ in range(N)])  # ground state of Hamiltonian
+    rho = tensor([fock_dm(M, 0)] + [fock_dm(N+1, 0)] + [fock_dm(N+1, 0)])  # ground state of Hamiltonian
     sys = System(H=H, rho=rho, a=ad, u=mud, c_ops=c_ops, diagonalize=True)
 
     en, T = H.eigenstates()

@@ -72,78 +72,145 @@ def spectrum_var(order=3, en_cav=None, en_exc=None, g=0.05, muc=1.0, muz=1.0,
         :return: Does not return anything unless anim
         """
     if en_cav is None:
-        en_cav = [1.0, 1.1]
+        if modes == 1: en_cav = 1.0
+        else:
+            en_cav = [1.0, 1.1]
+            en_cav = np.array(en_cav)
     if en_exc is None:
         en_exc = [1.0, 1.1]
-    en_cav = np.array(en_cav)
     en_exc = np.array(en_exc)
-    if len(en_cav) != modes and modes != 1:
-        print("Cavity modes and cavity energy dimensions don't match.")
-        return None
+    if modes != 1:
+        if len(en_cav) != modes:
+            print("Cavity modes and cavity energy dimensions don't match.")
+            return None
 
-    # setting up dm
-    fock1 = fock_dm(M, 0)
-    fock2 = fock_dm(M, 0)
-    exc_dims = "0"*N
-    exc_basis = ket(exc_dims, 3)
-    exciton_space = exc_basis * exc_basis.dag()  # ground state of Hamiltonian
-    rho = tensor(fock1, fock2, exciton_space)
-    null = np.zeros((3**N, 3**N))
-    # null_qu = Qobj(null, dims=[[3 for _ in range(N)] for _ in range(2)])
+    if modes == 1:
 
-    if modes == 1: # full fock basis
+        # setting up dm
+        fock_ = fock_dm(M, 0)
+        exc_dims = "0" * N
+        exc_basis = ket(exc_dims, 3)
+        exciton_space = exc_basis * exc_basis.dag()  # ground state of Hamiltonian
+        rho = tensor(fock_, exciton_space)
+        null = np.zeros((3 ** N, 3 ** N))
+
         if isinstance(en_cav, list):
             wc = en_cav[0]/hbar # cavity resonant frequency
         else: wc = en_cav/hbar
-        wz1 = en_exc/hbar # atom resonant frequency
-        wz2 = en_exc/hbar * 1.1
-        gc = np.sqrt((wz1 + wz2) * wc / 2)/2  # critical coupling strength
+        wz1, wz2 = en_exc / hbar  # atom resonant frequencies
 
-        o12, o13 = 0.5, 0.55 # transition strength
-        sig12_ind, sig13_ind = Qobj([[0, o12, 0], [0, 0, 0], [0, 0, 0]]), Qobj([[0, 0, o13], [0, 0, 0], [0, 0, 0]])
-        sig21_ind, sig31_ind = sig12_ind.dag(), sig13_ind.dag()
+        a = tensor([destroy(M)] + [qeye(3) for _ in range(N)])
 
-        a = tensor([destroy(M)] + [qeye(3) for _ in range(N)]) # list of lowering operators for cavity. Index is # of cavity
-        H_cav = hbar * wc * a.dag() * a # cavity term
+        H_cav = hbar * (wc * a.dag() * a)  # cavity term
 
+        H_exc_diag_sep = copy.deepcopy(null)
+        H_exc_binding_sep = copy.deepcopy(null)
+        H_exc_swap_sep = copy.deepcopy(null)
+        sites = [[[] for _ in range(3)] for _ in range(
+            3 ** N)]  # sites has 3**N lists of 3 lists. These 3 lists have 2 items among them, the 2 positions of excitons
+        site_state = [[[] for _ in range(3)] for _ in range(
+            N)]  # [i,j]; i is the site index, j is {0,H,L}. int is the state number in reduced hilbert space
+        idx_tern_list = []
+        wann_h = [[[], []], [[], []]]
+        wann_l = [[[], []], [[], []]]
 
-        H_exc_diag = qdiags([0, hbar * wz1, hbar * wz2])  # individual exciton diagonal term
-        Sz_equiv = tensor([qeye(M)] + [H_exc_diag for _ in range(N)])
-        H_exc_raise = sig21_ind + sig31_ind  # individual exciton raising term
-        H_exc_lower = sig12_ind + sig13_ind  # individual exciton lowering term
-        sig12 = [tensor([qeye(M)] + [qeye(3) for _ in range(k)] + [sig12_ind] +
-                     [qeye(3) for _ in range(N-k-1)]) for k in range(N)]
-        sig13 = [tensor([qeye(M)] + [qeye(3) for _ in range(k)] + [sig13_ind] +
-                        [qeye(3) for _ in range(N - k - 1)]) for k in range(N)]
-        b = [sig12[k] + sig13[k] for k in range(N)] # list of lowering operators for excitons. Index is # of exciton
-        bdag = [k.dag() for k in b]
-        H_exc = tensor([qeye(M)] + [H_exc_diag for _ in range(N)])  # global exciton term
+        for i in range(3 ** N):  # diagonal eigen energy is just freq of H-exc * nb of H-exc + idem for L-exc.
+            # in ternary, you get the # of '1' and '2' which are the nb of each exciton. Viva les 3-lvl systems
+            # same for neighboring HH/LL/HL/LH, find "11"/"22"/"12"/"21" then binding energy
+            idx_tern = str(to_ternary(i))  # string of index in ternary
+            idx_tern_list.append(idx_tern)
+            if i < 3 ** N: idx_tern = '0' * (N - len(
+                idx_tern)) + idx_tern  # make sure it has at least N terms. I think this works #,# need to test with N>2 but cba rn
 
-        H_exc_exc = 0 # exciton-exciton interaction term
+            en_eigen = wz1 * idx_tern.count('1') + wz2 * idx_tern.count('2')
+            H_exc_diag_sep[i, i] = en_eigen
+
+            en_binding = (hh_bind * idx_tern.count("11") + ll_bind * idx_tern.count("22") +
+                          hl_bind * (idx_tern.count("12") + idx_tern.count("21")))
+            H_exc_binding_sep[i, i] = -en_binding
+
+            if idx_tern.count("01"):
+                wann_h[0][0].append(i)
+                wann_h[0][1].append(idx_tern.find("01"))
+            if idx_tern.count("10"):
+                wann_h[1][0].append(i)
+                wann_h[1][1].append(idx_tern.find("10"))
+            if idx_tern.count("02"):
+                wann_l[0][0].append(i)
+                wann_l[0][1].append(idx_tern.find("02"))
+            if idx_tern.count("20"):
+                wann_l[1][0].append(i)
+                wann_l[1][1].append(idx_tern.find("20"))
+
+            # sites = [[] for _ in range(3)]
+            for k in range(len(idx_tern)):  # should be same as range(N) if the if i < 3**N works fine
+                sites[i][int(idx_tern[k])].append(k)
+                site_state[k][int(idx_tern[k])].append(i)
+
+        h_ground_sep = [copy.deepcopy(null) for _ in range(N)]
+        l_ground_sep = [copy.deepcopy(null) for _ in range(N)]
+        for i in range(N):
+            h_ground_sep[i][site_state[N - 1 - i][0], site_state[N - 1 - i][1]] = 1
+            l_ground_sep[i][site_state[N - 1 - i][0], site_state[N - 1 - i][2]] = 1
+        h_ground = [tensor([qeye(M)] + [Qobj(h_ground_sep[k], dims=[[3 for _ in range(N)] for _ in range(2)])])
+                    for k in range(N)]  # lowering for H, index is exciton index from right to left
+        l_ground = [tensor([qeye(M)] + [Qobj(l_ground_sep[k], dims=[[3 for _ in range(N)] for _ in range(2)])])
+                    for k in range(N)]  # idem for L
+
+        for j in range(len(wann_h[0][0])):
+            for k in range(len(wann_h[0][0])):
+                if wann_h[0][1][j] == wann_h[1][1][k]:
+                    H_exc_swap_sep[wann_h[0][0][j]][wann_h[1][0][k]] = hg_swap
+                if wann_l[0][1][j] == wann_l[1][1][k]:
+                    H_exc_swap_sep[wann_l[0][0][j]][wann_l[1][0][k]] = lg_swap
+
+        H_exc = tensor([qeye(M)] + [Qobj(H_exc_diag_sep,
+                                dims=[[3 for _ in range(N)] for _ in range(2)])]) # exciton diag pop terms
+
+        H_exc_frenkel = tensor([qeye(M)] + [Qobj(H_exc_binding_sep,
+                                dims=[[3 for _ in range(N)] for _ in range(2)])])  # frenkel neighboring binding term
+        H_exc_wanmott = tensor([qeye(M)] + [Qobj(H_exc_swap_sep,
+                                dims=[[3 for _ in range(N)] for _ in range(2)])])  # wannier-mott swapping with neighboring ground state term
+
+        H_exc_exc = H_exc_frenkel + H_exc_wanmott  # exciton-exciton interaction term
 
         if model == "no_rw":
-            H_int = hbar * (a + a.dag()) * sum([k + k.dag() for k in b])/np.sqrt(N)  # intra-cavity interaction term
+            H_int = hbar * g * ((a + a.dag()) * (sum(h_ground) + sum([h_ground[k].dag() for k in range(N)]) +
+                                                 sum(l_ground) + sum([l_ground[k].dag() for k in range(N)])))
         elif model == "rw":
-            H_int = hbar * (a * sum([k.dag() for k in b]) + a.dag() * sum([k for k in b]))/np.sqrt(N)
+            H_int = hbar * g * (a * (sum([h_ground[k].dag() for k in range(N)]) + sum([l_ground[k].dag()
+                                    for k in range(N)])) + a.dag() * (h_ground + l_ground))
 
         H0 = H_cav + H_exc
-        H = H0 + g * H_int + H_exc_exc # total hamiltonian
+        H = H0 + g * H_int + H_exc_exc  # total hamiltonian
         # print("H0", H0)
         # print("H_int", H_int)
         # print("H", H)
 
-        mud = muc * (a + a.dag()) + muz * sum([k + k.dag() for k in b]) / np.sqrt(N)
-        ad = a + sum(b) / np.sqrt(N)
+        mud = muc * (a + a.dag()) + muz * (sum(h_ground) + sum([h_ground[k].dag() for k in range(N)]) +
+                    sum(l_ground) + sum([l_ground[k].dag() for k in range(N)]))  # sqrt(N)? sqrt(3**N)? sqrt(perms)?
+        ad = muc * a + muz * (sum(h_ground) + sum(l_ground))
 
         # collapse operators: cavity relaxation, cavity exc., collective dephasing, atomic relaxation, atomic exc.
         c_cav_rel = np.sqrt(kappa * (n_th + 1)) * a
         c_cav_exc = np.sqrt(kappa * n_th) * a.dag()
-        c_col_dep = np.sqrt(gamma_phase) * Sz_equiv
-        c_ato_rel = np.sqrt(gamma_decay * (n_th + 1)) * sum(b) / np.sqrt(N)
-        c_ato_exc =np.sqrt(gamma_decay * n_th) * sum(bdag) / np.sqrt(N)
+        c_col_dep = np.sqrt(gamma_phase) * H_exc
+        c_ato_rel = np.sqrt(gamma_decay * (n_th + 1)) * (sum(h_ground) + sum(l_ground))
+        c_ato_exc = np.sqrt(gamma_decay * n_th) * (
+                    sum([h_ground[k].dag() for k in range(N)]) + sum([l_ground[k].dag() for k in range(N)]))
         c_ops = [c_cav_rel, c_cav_exc, c_col_dep]
 
     elif modes == 2:
+
+        # setting up dm
+        fock1 = fock_dm(M, 0)
+        fock2 = fock_dm(M, 0)
+        exc_dims = "0" * N
+        exc_basis = ket(exc_dims, 3)
+        exciton_space = exc_basis * exc_basis.dag()  # ground state of Hamiltonian
+        rho = tensor(fock1, fock2, exciton_space)
+        null = np.zeros((3 ** N, 3 ** N))
+
         wc1,wc2 = en_cav / hbar  # cavity resonant frequencies
         wz1, wz2 = en_exc / hbar  # atom resonant frequencies
 
@@ -152,18 +219,15 @@ def spectrum_var(order=3, en_cav=None, en_exc=None, g=0.05, muc=1.0, muz=1.0,
 
         H_cav = hbar * (wc1 * a.dag() * a + wc2 * b.dag() * b)  # cavity terms
 
-        # mud = muc * (a + a.dag()) + muz * Sx
-
         H_exc_diag_sep = copy.deepcopy(null)
         H_exc_binding_sep = copy.deepcopy(null)
         H_exc_swap_sep = copy.deepcopy(null)
-        # H_no_rw_sep = copy.deepcopy(null)
-        # H_rw_sep = copy.deepcopy(null)
         sites = [[[] for _ in range(3)] for _ in range(3**N)] # sites has 3**N lists of 3 lists. These 3 lists have 2 items among them, the 2 positions of excitons
         site_state = [[[] for _ in range(3)] for _ in range(N)] # [i,j]; i is the site index, j is {0,H,L}. int is the state number in reduced hilbert space
         idx_tern_list = []
         wann_h = [[[],[]],[[],[]]]
         wann_l = [[[],[]],[[],[]]]
+
         for i in range(3**N): # diagonal eigen energy is just freq of H-exc * nb of H-exc + idem for L-exc.
                     #in ternary, you get the # of '1' and '2' which are the nb of each exciton. Viva les 3-lvl systems
                     #same for neighboring HH/LL/HL/LH, find "11"/"22"/"12"/"21" then binding energy
@@ -223,11 +287,9 @@ def spectrum_var(order=3, en_cav=None, en_exc=None, g=0.05, muc=1.0, muz=1.0,
         if model == "no_rw":
             H_int = hbar * g * ((a + a.dag()) * (sum(h_ground) + sum([h_ground[k].dag() for k in range(N)])) +
                                 (b + b.dag()) * (sum(l_ground) + sum([l_ground[k].dag() for k in range(N)])))
-            # H_int = tensor([qeye(M), qeye(M)] + [Qobj(H_no_rw_sep, dims=[[3 for _ in range(N)] for _ in range(2)])])
         elif model == "rw":
             H_int = hbar * g * (a * sum([h_ground[k].dag() for k in range(N)]) + a.dag() * h_ground +
                                 b * sum([l_ground[k].dag() for k in range(N)]) + b.dag() * l_ground)
-            # H_int = tensor([qeye(M), qeye(M)] + [Qobj(H_rw_sep, dims=[[3 for _ in range(N)] for _ in range(2)])])
 
         H0 = H_cav + H_exc
         H = H0 + g * H_int + H_exc_exc # total hamiltonian
@@ -325,4 +387,4 @@ def spectrum_var(order=3, en_cav=None, en_exc=None, g=0.05, muc=1.0, muz=1.0,
                   invert_y=False, diagonals=[True, False], nlevels=10,
                   title_graph=None, plot_graph=True, direc=directory)
 
-spectrum_var(N=2)
+spectrum_var(N=2, modes=1)

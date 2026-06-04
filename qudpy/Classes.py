@@ -44,14 +44,14 @@ class System:
         self.tlist = tlist if tlist is not None else []  # list of time steps, default is empty
         self.diagonalized = diagonalize
         if self.diagonalized:
-            # print("diagonalizing Hamiltonian and transforming everything into eigen-basis except rho")
+            print("diagonalizing Hamiltonian and transforming everything into eigen-basis except rho")
             evals, evecs = self.H.eigenstates()
             self.a = self.a.transform(evecs)
             self.u = self.u.transform(evecs)
             self.H = self.H.transform(evecs)
             self.c_ops = [c.transform(evecs) for c in self.c_ops]
             self.e_ops = [e.transform(evecs) for e in self.e_ops]
-        # print("system initialized")
+        print("system initialized")
 
     def diagram_donkey(self, interaction_times=None, diagrams=None, r=10, plot_graph=True, title_graph=None, dir="results"):
         """
@@ -73,7 +73,7 @@ class System:
 
         # setting up simulation
         total_diagrams, total_interactions = np.shape(diagrams)[:2]
-        # print('total diagrams', total_diagrams, ', total interactions ', total_interactions)
+        print('total diagrams', total_diagrams, ', total interactions ', total_interactions)
         for diagram in diagrams:  # loop over diagrams
             rho = self.rho  # setting initial density matrix (typically the ground state)
             states = []
@@ -172,8 +172,8 @@ class System:
 
         
         # Now at this point only last interaction and last scan-able delay is left.
-        # print('First scan done, starting second scan. Remaining time = First Scan Time x number of steps in second scan'
-              # + '/number of processors')
+        print('First scan done, starting second scan. Remaining time = First Scan Time x number of steps in second scan'
+              + '/number of processors')
         states = [self.apply_pulse(state, diagram[scan_id[1]]) for state in states]
         delta_t = time_delays[scan_id[1]]
         t_list = np.linspace(0, delta_t, int(delta_t*r))
@@ -201,7 +201,7 @@ class System:
 
         dipole = np.array([expect(self.u, final_states[x][:]) for x in range(len(final_states))])
 
-        # print('second scan done')
+        print('second scan done')
         return final_states, np.linspace(0, time_delays[scan_id[0]], int(time_delays[scan_id[0]] * r)), t_list, dipole
 
     def brcoherence2d(self, time_delays=None, diagram=None, scan_id=None, r=10, parallel=False):
@@ -217,11 +217,11 @@ class System:
         """
 
         if len(time_delays) != len(diagram):
-            # print('time delays for each interaction not given')
-            # print('number of time delays', len(time_delays), ' number of interactions ', len(diagram))
+            print('time delays for each interaction not given')
+            print('number of time delays', len(time_delays), ' number of interactions ', len(diagram))
             return None
         if len(scan_id) != 2:
-            # print('scan id not provided for two tunable delays')
+            print('scan id not provided for two tunable delays')
             return None
 
         if parallel:
@@ -260,8 +260,8 @@ class System:
                 states = [brmesolve(self.H, state, coherence_time, self.c_ops, e_ops=[]).states[-1] for state in states]
 
         # Now at this point only last interaction and last scan-able delay is left.
-        # print('First scan done, starting second scan. Remaining time = First Scan Time x number of steps in second scan'
-        #       + '/number of processors')
+        print('First scan done, starting second scan. Remaining time = First Scan Time x number of steps in second scan'
+              + '/number of processors')
         states = [self.apply_pulse(state, diagram[scan_id[1]]) for state in states]
         delta_t = time_delays[scan_id[1]]
         t_list = np.linspace(0, delta_t, int(delta_t * r))
@@ -288,7 +288,7 @@ class System:
 
         dipole = np.array([expect(self.u, final_states[x][:]) for x in range(len(final_states))])
 
-        # print('second scan done')
+        print('second scan done')
         return final_states, np.linspace(0, time_delays[scan_id[0]], int(time_delays[scan_id[0]] * r)), t_list, dipole
 
     # some small helper functions to keep the coherence2D function readable
@@ -398,8 +398,6 @@ class System:
             plt.show()
         else:
             plt.close()
-        # print(spec[len(freq)//2:])
-        # print(freq[len(freq)//2:])
         return dipole, t_list, spec, freq
 
     def pop_study(self, pop_time_list=None, pop_index=1, time_delays=None, diagram=None, scan_id=None, r=10, parallel=False):

@@ -183,7 +183,6 @@ def coor(data_x, data_y, z):
 
         if data_x[0][a] >= z[0]:
             index_1.append(a)
-            # print(a)
         if data_x[0][a] <= z[1]:
             index_2.append(a)
 
@@ -245,12 +244,12 @@ def silva_plot(spectra_list=None, x_val=None, y_val=None, labels=None, title_lis
         print('Nothing to plot, kindly provide the data')
         return
     if x_val is None:
-        # print('Scan range not given. Using default range of 0 to 1')
+        print('Scan range not given. Using default range of 0 to 1')
         x_val = [0, 1]
     if y_val is None:
         y_val = [0, 1]
     if title_list is None:
-        # print('titles not given. Using default titles: simple numbers')
+        print('titles not given. Using default titles: simple numbers')
         title_list = [str(x + 1) for x in range(len(spectra_list) * 3)]
     if diagonals is None:
         diagonals = [True, True]
@@ -320,11 +319,11 @@ def silva_plot(spectra_list=None, x_val=None, y_val=None, labels=None, title_lis
         cols = 3
 
     if center_scale:
-        # print('centering data around zero')
+        print('centering data around zero')
         data = [d - (np.min(d) + np.max(d)) / 2 for d in data]
 
     if scale == 'log':
-        # print('using log scale')
+        print('using log scale')
         data = np.array([log_scale(s) for s in data])
 
     axes = []

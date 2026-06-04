@@ -106,7 +106,6 @@ def spectrum_var(order=3, en_cav=None, en_exc=None, g=0.05, muc=1.0, muz=1.0,
         a = tensor([destroy(M)] + [qeye(3) for _ in range(N)]) # list of lowering operators for cavity. Index is # of cavity
         H_cav = hbar * wc * a.dag() * a # cavity term
 
-        # print("cav", a)
 
         H_exc_diag = qdiags([0, hbar * wz1, hbar * wz2])  # individual exciton diagonal term
         Sz_equiv = tensor([qeye(M)] + [H_exc_diag for _ in range(N)])
@@ -116,7 +115,6 @@ def spectrum_var(order=3, en_cav=None, en_exc=None, g=0.05, muc=1.0, muz=1.0,
                      [qeye(3) for _ in range(N-k-1)]) for k in range(N)]
         sig13 = [tensor([qeye(M)] + [qeye(3) for _ in range(k)] + [sig13_ind] +
                         [qeye(3) for _ in range(N - k - 1)]) for k in range(N)]
-        print("sigma12", sig12, "sigma13", sig13)
         b = [sig12[k] + sig13[k] for k in range(N)] # list of lowering operators for excitons. Index is # of exciton
         bdag = [k.dag() for k in b]
         H_exc = tensor([qeye(M)] + [H_exc_diag for _ in range(N)])  # global exciton term
@@ -258,14 +256,14 @@ def spectrum_var(order=3, en_cav=None, en_exc=None, g=0.05, muc=1.0, muz=1.0,
 
     title = "exc_exc_model"
 
-    # print("dimensionality of Hilbert-space: ", H.shape)
+    print("dimensionality of Hilbert-space: ", H.shape)
 
     # setting up system
     sys = System(H=H, rho=rho, a=ad, u=mud, c_ops=c_ops, diagonalize=True)
 
     en, T = H.eigenstates()
 
-    # print("system has been intialized")
+    print("system has been intialized")
 
     # # calculate the expectation value of the number of photons in the cavity
     # n_vec = expect(a.dag() * a, rho)
@@ -296,17 +294,17 @@ def spectrum_var(order=3, en_cav=None, en_exc=None, g=0.05, muc=1.0, muz=1.0,
         # Creating diagrams for pulse arrival times 0, 100, 200 and detection time 300.
         [R3, R1, R2] = R3rd.get_diagrams([0, 100, 200, 300])
         rephasing = [R1, R2, R3]
-        # print('the rephasing diagrams are R1, R2 and R3 ', rephasing)
+        print('the rephasing diagrams are R1, R2 and R3 ', rephasing)
 
         # setting conditions for and generating non-rephasing diagrams R4, R5 and R6
         R3rd.set_phase_discrimination([(1, 0), (0, 1), (1, 0)])
         [R6, R4, R5] = R3rd.get_diagrams([0, 100, 200, 200])
         nonrephasing = [R4, R5, R6]
-        # print('the non-rephasing diagrams are R4, R5 and R6', nonrephasing)
+        print('the non-rephasing diagrams are R4, R5 and R6', nonrephasing)
 
         sys.diagram_donkey([0, 100, 100+time2, 200+time2], [R3], r=10, title_graph=None, plot_graph=False, dir=directory)
 
-        # print("finished setup stage")
+        print("finished setup stage")
 
         # generating 2Dcoherence response for rephasing diagrams
         time_delays = [100, time2, 100]
@@ -315,7 +313,7 @@ def spectrum_var(order=3, en_cav=None, en_exc=None, g=0.05, muc=1.0, muz=1.0,
         diagrams = rephasing + nonrephasing
         for k in range(6):
             states, t1, t2, dipole = sys.coherence2d(time_delays, diagrams[k], scan_id, r=1.5/np.pi, parallel=True)
-            # print('diagram ', k, ' done')
+            print('diagram ', k, ' done')
             response_list.append(1j * dipole)
         spectra_list, extent, f1, f2 = sys.spectra(np.imag(response_list), resolution=1)
 

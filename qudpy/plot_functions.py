@@ -216,7 +216,7 @@ def log_scale(z):
 def silva_plot(spectra_list=None, x_val=None, y_val=None, labels=None, title_list=None, scale='linear',
                color_map='PuOr',
                interpolation='spline36', center_scale=True, plot_sum=True, plot_quadrant='All', invert_y=True,
-               diagonals=[True, True], zoom_coor=None, plot_graph=True, title_graph=None, dir="results", anim="no"):
+               diagonals=None, zoom_coor=None, plot_graph=True, title_graph=None, direc="results", anim="no"):
     """
     Plot multiple spectra with real, imaginary and abs values
     :param spectra_list: List of spectra or dipole expectation values or any other variable of interest. Must be float data type
@@ -232,9 +232,11 @@ def silva_plot(spectra_list=None, x_val=None, y_val=None, labels=None, title_lis
     :param plot_quadrant: only plots the selected quadrant(s) for the graphs
     :param plot_quadrant = 'Zoom' to make a zoom on the coordinates Zoom_coor
     :param invert_y: flips the y-axis by converting -ve values to +ve
+    :param diagonals: diagonal and cross-diagonal of the plot
     :param zoom_coor: allows to Zoom in a specific tuple of coordinates in the format [xmin,xmax,ymin,ymax]
     :param plot_graph: whether to plot the graph or not
     :param title_graph: filename for saving
+    :param direc: directory for saving graphs
     :param anim: if animation
     :return: Does not return anything
     
@@ -250,6 +252,8 @@ def silva_plot(spectra_list=None, x_val=None, y_val=None, labels=None, title_lis
     if title_list is None:
         # print('titles not given. Using default titles: simple numbers')
         title_list = [str(x + 1) for x in range(len(spectra_list) * 3)]
+    if diagonals is None:
+        diagonals = [True, True]
 
     spectra_list_ = spectra_list[:]
 
@@ -372,26 +376,20 @@ def silva_plot(spectra_list=None, x_val=None, y_val=None, labels=None, title_lis
         plt.close()
         return data, scan_range, diag_range_list
     if title_graph is not None:
-        os.makedirs(dir, exist_ok=True)
-        plt.savefig(dir + '/silva ' + title_graph + '.png')
+        os.makedirs(direc, exist_ok=True)
+        plt.savefig(direc + '/silva ' + title_graph + '.png')
     if plot_graph:
         plt.show()
     else:
         plt.close()
-    return
+    return None
 
 
 def silva_plot_contourf(
-        spectra_list=None, x_val=None, y_val=None,
-        labels=None, title_list=None,
-        scale='linear', color_map='jet',
-        center_scale=False, plot_sum=True,
-        plot_quadrant='All', invert_y=True,
-        diagonals=[True, True],
-        zoom_coor=None, nlevels=12,
-        plot_graph=True, title_graph=None,
-        dir="results", anim="no"
-):
+        spectra_list=None, x_val=None, y_val=None, labels=None, title_list=None,
+        scale='linear', color_map='jet', center_scale=False, plot_sum=True,
+        plot_quadrant='All', invert_y=True, diagonals=[True, True], zoom_coor=None,
+        nlevels=12, plot_graph=True, title_graph=None, direc="results", anim="no"):
     if spectra_list is None:
         print('Nothing to plot')
         return
@@ -555,10 +553,10 @@ def silva_plot_contourf(
         plt.close()
         return (X, Y, Z), scan_range, diag_range_list, norm, (vmin, vmax)
     if title_graph is not None:
-        os.makedirs(dir, exist_ok=True)
-        plt.savefig(dir + '/silva ' + title_graph + '.png')
+        os.makedirs(direc, exist_ok=True)
+        plt.savefig(direc + '/silva ' + title_graph + '.png')
     if plot_graph:
         plt.show()
     else:
         plt.close()
-    return
+    return None

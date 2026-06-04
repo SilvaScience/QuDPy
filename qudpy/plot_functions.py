@@ -553,7 +553,7 @@ def silva_plot_contourf(
         return (X, Y, Z), scan_range, diag_range_list, norm, (vmin, vmax)
     if title_graph is not None:
         os.makedirs(direc, exist_ok=True)
-        plt.savefig(direc + '/silva ' + title_graph + '.png')
+        plt.savefig(direc + title_graph + '.png')
     if plot_graph:
         plt.show()
     else:

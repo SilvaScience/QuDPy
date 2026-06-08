@@ -364,7 +364,7 @@ def silva_plot(spectra_list=None,x_val=None,y_val=None, labels=None, title_list=
             plt.ylabel(labels[1])
         plt.colorbar(im, ax=axes[-1], shrink=0.7)
     fig.tight_layout()
-   
+    plt.show()
 
     return
 

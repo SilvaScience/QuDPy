@@ -76,7 +76,7 @@ for (H, c_ops), title in zip(H_c_ops, titles):
     title = "M"+str(M)+" N"+str(N)+" order"+str(order)+" "+title
     print(title+"\n")
 
-    # print("dimensionality of Hilbert-space: ", H.shape)
+    print("dimensionality of Hilbert-space: ", H.shape)
 
     # setting up system
     rho = tensor(fock_dm(M, 0), fock_dm(N+1, 0))  # ground state of Hamiltonian
@@ -140,7 +140,6 @@ for (H, c_ops), title in zip(H_c_ops, titles):
 
         rephasing_spectra = spectra_list[:3]
         rephasing_spectra.append(np.sum(spectra_list[:3], 0))
-        pf.silva_plot(rephasing_spectra, f1, f2, labels=['E emission', 'E absorption'],
-                      scale='linear', color_map='PuOr',
-                      interpolation='spline36', center_scale=False, plot_sum=False, plot_quadrant='2', invert_y=False,
-                      diagonals=[True, False], title_graph=title, plot_graph=False, dir="dicke_results")
+        pf.silva_plot_contourf(rephasing_spectra, f1, f2, labels=['E emission', 'E absorption'],
+                      scale='linear', color_map='PuOr', center_scale=False, plot_sum=False, plot_quadrant='2', invert_y=False,
+                      diagonals=[True, False], title_graph=title, plot_graph=False, direc="dicke_results")

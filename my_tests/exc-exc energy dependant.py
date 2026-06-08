@@ -16,7 +16,6 @@ import ufss
 import matplotlib.animation as animation
 import matplotlib.cm as cm
 from mpl_toolkits.mplot3d import axes3d
-# import copy
 
 np.set_printoptions(threshold=sys.maxsize, linewidth=190, precision=3, suppress=True)
 
@@ -27,9 +26,9 @@ kT = T * kB
 beta = 1 / kT
 
 def spectrum_var(order=3, en_cav=None, en_exc=None, g=0.05, J=0.05,
-                 muc=1.0, muz=1.0, kappa=0.1, gamma_phase=0.15, gamma_decay=0.15,
-                 hh_bind=0.1, ll_bind=0.1, hl_bind=0.1, hg_swap=0.05, lg_swap=0.05,
-                 M=3, modes=1, dark="light", N=2, model="rw", n_th=0.25, decay="no_atomic",
+                 muc=1.0, muz=1.0, kappa=0.1, gamma_phase=0.1, gamma_decay=0.1,
+                 hh_bind=0.1, ll_bind=0.1, hl_bind=0.1, hg_swap=0.1, lg_swap=0.1,
+                 M=3, modes=1, dark="light", N=2, model="no_rw", n_th=0.25, decay="no_atomic",
                  time2=None, directory="results/exc-exc/", anim="no"):
     """
         Plot multiple spectra with real, imaginary and abs values
@@ -62,6 +61,10 @@ def spectrum_var(order=3, en_cav=None, en_exc=None, g=0.05, J=0.05,
     if en_exc is None:
         en_exc = [1.0, 1.1]
     en_exc = np.array(en_exc)
+    if time2 is None:
+        time2 = 20
+    if g is None:
+        g = 0.05
 
     # setting up dm
     fock_ = fock_dm(M, 0)
@@ -88,9 +91,13 @@ def spectrum_var(order=3, en_cav=None, en_exc=None, g=0.05, J=0.05,
     hl_h_bound_low = np.zeros((9,9)); hl_h_bound_low[[1],[5]] = 1/np.sqrt(2); hl_h_bound_low=tensor(qeye(M), Qobj(hl_h_bound_low)) # lowers to h
     hl_l_bound_low = np.zeros((9,9)); hl_l_bound_low[[2],[5]] = 1/np.sqrt(2); hl_l_bound_low=tensor(qeye(M), Qobj(hl_l_bound_low)) # lowers to l
 
+    if N == 2:
+        hh_low = hl_l_low = hl_h_low = ll_low = Qobj(np.zeros((M*9, M*9)), dims=[[M,9],[M,9]])
+
     exc_h_low = h_low + hh_bound_low + hh_low + hl_l_bound_low + hl_l_low
     exc_l_low = l_low + hl_h_bound_low + hl_h_low + ll_bound_low + ll_low
     exc_low = exc_h_low + exc_l_low
+
 
     H_exc = (hbar * wz_h * h_low.dag() * h_low + #h-pop
              hbar * wz_l * l_low.dag() * l_low + #l-pop
@@ -101,20 +108,27 @@ def spectrum_var(order=3, en_cav=None, en_exc=None, g=0.05, J=0.05,
              hbar * (wz_h + wz_l) * (hl_h_low.dag() * hl_h_low + hl_l_low.dag() * hl_l_low) + #hl-pop
              hbar * (wz_h + wz_l - hl_bind / 2) * (hl_h_bound_low.dag() * hl_h_bound_low + hl_l_bound_low.dag() * hl_l_bound_low) )#hl-biexc-pop
 
+    # scaling for ground at zero energy
+    scaling = qdiags([H_exc[0,0] for _ in range(H_exc.shape[0])], dims = H_exc.dims)
+    H_exc -= scaling
+
     # only 1 interacts with the cavity
     if model == "no_rw":
         if dark == "light":
-            H_int = hbar * g * (a + a.dag()) * (exc_h_low + exc_h_low.dag())
+            H_int = hbar * (a + a.dag()) * (exc_h_low + exc_h_low.dag())
         else:
-            H_int = hbar * g * (a + a.dag()) * (exc_l_low + exc_l_low.dag())
+            H_int = hbar * (a + a.dag()) * (exc_l_low + exc_l_low.dag())
     elif model == "rw":
         if dark == "light":
-            H_int = hbar * g * (a.dag() * exc_h_low + a * exc_h_low.dag())
+            H_int = hbar * (a.dag() * exc_h_low + a * exc_h_low.dag())
         else:
-            H_int = hbar * g * (a.dag() * exc_l_low + a * exc_l_low.dag())
+            H_int = hbar * (a.dag() * exc_l_low + a * exc_l_low.dag())
 
-    H_coupling = np.zeros((9,9)); H_coupling[[1,2],[2,1]] = H_coupling[3:,3:] = 1;
-    np.fill_diagonal(H_coupling, 0); H_coupling = tensor(qeye(M), Qobj(H_coupling)) #hl coupling
+    H_coupling = np.zeros((9,9)); H_coupling[[1,2],[2,1]] = H_coupling[[3,3,5,5,7,7],[5,7,7,3,3,5]] = H_coupling[[4,4,6,6,8,8],[6,8,8,4,4,6]] = 1
+    if N == 2:
+        H_coupling[[4,6,8][:]] = 0
+    H_coupling = tensor(qeye(M), Qobj(H_coupling)) #hl coupling
+    # print("H_coupling", H_coupling)
 
     H0 = H_cav + H_exc # diagonal hamiltonian
     H = H0 + g * H_int + J * H_coupling # total hamiltonian
@@ -124,6 +138,8 @@ def spectrum_var(order=3, en_cav=None, en_exc=None, g=0.05, J=0.05,
 
     mud = muc * (a + a.dag()) + muz * (exc_low + exc_low.dag())
     ad = muc * a + muz * exc_low
+    # print("mud", mud)
+    # print("ad", ad)
 
     # collapse operators: cavity relaxation, cavity exc., collective dephasing, atomic relaxation, atomic exc.
     c_cav_rel = np.sqrt(kappa * (n_th + 1)) * a
@@ -132,11 +148,6 @@ def spectrum_var(order=3, en_cav=None, en_exc=None, g=0.05, J=0.05,
     c_ato_rel = np.sqrt(gamma_decay * (n_th + 1)) * exc_low
     c_ato_exc = np.sqrt(gamma_decay * n_th) * exc_low.dag()
     c_ops = [c_cav_rel, c_cav_exc, c_col_dep]
-
-    if time2 is None:
-        time2 = 20
-    if g is None:
-        g = 0.05
 
     title = "exc_exc_model_energies"
 
@@ -151,15 +162,15 @@ def spectrum_var(order=3, en_cav=None, en_exc=None, g=0.05, J=0.05,
 
     # # calculate the expectation value of the number of photons in the cavity
     # n_vec = expect(a.dag() * a, rho)
+    # # print("expectation of number of photons: ", n_vec)
     # n2_vec = expect(a.dag() * a*a.dag() * a, rho)
-    # Jz_vec = expect(Sz, rho)
     # a_vec = expect(a, rho)
 
     if order == 1:
         d0 = 100
 
         # generating spectra
-        dipole, t_list, spec, freq = sys.linear_spec(d0, r=1.5/np.pi, title_graph=title, plot_graph=False, dir=directory)
+        dipole, t_list, spec, freq = sys.linear_spec(d0, r=10, title_graph=title, plot_graph=False, dir=directory)
 
     if order == 3:
 
@@ -191,7 +202,7 @@ def spectrum_var(order=3, en_cav=None, en_exc=None, g=0.05, J=0.05,
         print("finished setup stage")
 
         # generating 2Dcoherence response for rephasing diagrams
-        time_delays = [200, 20, 200]
+        time_delays = [50, 10, 50]
         scan_id = [0, 2]
         response_list = []
         diagrams = rephasing + nonrephasing
@@ -206,7 +217,7 @@ def spectrum_var(order=3, en_cav=None, en_exc=None, g=0.05, J=0.05,
         pf.silva_plot_contourf(rephasing_spectra, f1, f2, labels=['E emission', 'E absorption'],
                   scale='linear', color_map='PuOr', title_list = ['$R_1$', '$R_2$', '$R_3$', '$R_{rephasing}$'],
                   center_scale=False, plot_sum=False, plot_quadrant='2', zoom_coor=[-2.8,-2,2,2.8],
-                  invert_y=False, diagonals=[True, False], nlevels=10,
-                  title_graph="1 mode test 5", plot_graph=True, direc=directory)
+                  invert_y=False, diagonals=[True, False], nlevels=15,
+                  title_graph="1 mode test 11", plot_graph=True, direc=directory)
 
-spectrum_var(N=2, M=2)
+spectrum_var(N=2, M=3)

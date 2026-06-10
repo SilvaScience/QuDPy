@@ -142,4 +142,4 @@ for (H, c_ops), title in zip(H_c_ops, titles):
         rephasing_spectra.append(np.sum(spectra_list[:3], 0))
         pf.silva_plot_contourf(rephasing_spectra, f1, f2, labels=['E emission', 'E absorption'],
                       scale='linear', color_map='PuOr', center_scale=False, plot_sum=False, plot_quadrant='2', invert_y=False,
-                      diagonals=[True, False], title_graph=title, plot_graph=False, direc="dicke_results")
+                      diagonals=[True, False], title_graph=title, plot_graph=False, direc="dicke_results/")

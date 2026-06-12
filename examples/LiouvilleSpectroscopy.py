@@ -137,7 +137,7 @@ class LiouvilleSpectroscopySolver:
         L_w3 = self._get_L_eff(w3)
         L_0  = self._get_L_eff(0.0)
         
-        G1 = np.linalg.inv((-w1 + 1j * self.eta) * I_super - L_w1)
+        G1 = np.linalg.inv((w1 + 1j * self.eta) * I_super - L_w1)
         G3 = np.linalg.inv((w3 + 1j * self.eta) * I_super - L_w3)
         
         # Vectorized matrix exponential via diagonalization for tau2
@@ -213,7 +213,7 @@ class LiouvilleSpectroscopySolver:
         for i, w1 in enumerate(w_list):
             for j, w3 in enumerate(w_list):
                 # Simultaneous calculation for all k-points
-                vec_reph = self.calc_rephasing(-w3, w1, tau2)
+                vec_reph = self.calc_rephasing(-w3, -w1, tau2)
                 vec_unreph = self.calc_unrephasing(w3, w1, tau2)
                 
                 # Numerical trapezoidal integration / sum over the Brillouin zone

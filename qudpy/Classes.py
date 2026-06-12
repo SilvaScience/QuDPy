@@ -363,9 +363,9 @@ class System:
         else:
             rho = self.rho * self.a
             # linear response is created by 'Bu' action on rho initial, alternatively we can apply
-
-        dipole = mesolve(self.H, rho, t_list, self.c_ops, e_ops=[self.u]).expect[0]
-
+        print('Starting dipole master equation calculation')
+        dipole = mesolve(self.H, rho, t_list, self.c_ops, e_ops=[self.u], options={"progress_bar": "tqdm",
+                            "progress_kwargs": {"chunk_size": 10000/scan_time}}).expect[0]
         plt.figure(figsize=(16, 6))
         plt.plot(t_list, np.imag(dipole))
         plt.plot(t_list, np.real(dipole))

@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import time
 
 ###################################################################################
 #################             Author: Mathieu Desmarais            ################
@@ -23,11 +24,25 @@ class LiouvilleSpectroscopySolver:
         self.H_eigen = None
         self.J_plus = None
         self.J_minus = None
+
         self.c_ops = []
+        self.c_ops_eigen = []
+
+
+
         self.dim = None
         self.N_k = None
 
-    def feed_model(self, H_model, J_model):
+        self.profiling = {
+            "rephasing_total": 0.0,
+            "unrephasing_total": 0.0,
+            "resolvent_inversions": 0.0, # Temps passé dans np.linalg (G1, G2, G3)
+            "feynman_pathways": 0.0,     # Temps passé dans les multiplications (@)
+            "k_integration": 0.0,        # Temps passé dans np.sum
+            "total_scan": 0.0
+        }
+
+    def feed_model(self, H_model, J_model, mu_optical):
         """
         Receives the Hamiltonian and Current in the site basis (N_k, d, d).
         Diagonalizes the system and universally separates the operators according to the RWA.
@@ -46,6 +61,19 @@ class LiouvilleSpectroscopySolver:
         # 2. Rotation of the current operator into the eigenstate basis
         V_dag = np.conj(evecs.transpose(0, 2, 1))
         J_eigen = V_dag @ J_model @ evecs
+        #    Rotation of the dipole operators
+
+        mu_eigen = V_dag @ mu_optical @ evecs
+
+
+        self.c_ops_eigen = []
+        for self.c_ops, gamma in self.c_ops:
+            # On étend C_local sur N_k s'il est statique
+            C_k = np.tile(self.c_ops, (self.N_k, 1, 1))
+            
+            # Rotation dans la base propre
+            C_eigen = V_dag @ C_k @ evecs
+            self.c_ops_eigen.append((C_eigen, gamma))
         
         # 3. Universal application of the RWA (independent of the number of bands)
         self.J_plus = np.zeros_like(J_eigen)
@@ -90,12 +118,9 @@ class LiouvilleSpectroscopySolver:
                         0.5 * self._spost(C_dag_C))
 
     def _get_L_eff(self, w_probe):
-        """Generates the total effective Liouvillian for a given frequency"""
-        # Coherent part: [H, \rho]
         L = (self._spre(self.H_eigen) - self._spost(self.H_eigen))
-        # Addition of Lindblad relaxation
-        for C, gamma in self.c_ops:
-            L += 1j * self._get_lindblad(C, gamma)
+        for C_eigen, gamma in self.c_ops_eigen: # <- Utiliser C_eigen ici
+            L += 1j * self._get_lindblad(C_eigen, gamma)
         return L
 
     def _get_thermal_state(self):
@@ -137,13 +162,18 @@ class LiouvilleSpectroscopySolver:
         L_w3 = self._get_L_eff(w3)
         L_0  = self._get_L_eff(0.0)
         
+
+        t_inv_start = time.time()
         G1 = np.linalg.inv((w1 + 1j * self.eta) * I_super - L_w1)
         G3 = np.linalg.inv((w3 + 1j * self.eta) * I_super - L_w3)
         
         # Vectorized matrix exponential via diagonalization for tau2
         evals, evecs = np.linalg.eig(-1j * L_0 * tau2)
         G2 = (evecs * np.exp(evals)[:, np.newaxis, :]) @ np.linalg.inv(evecs)
+        self.profiling["resolvent_inversions"] += time.time() - t_inv_start
         
+
+        t_path_start = time.time()
         # Evaluation of Feynman pathways
         path_GSB = G3 @ (JL_plus @ (G2 @ (JR_plus @ (G1 @ (JR_minus @ rho_vec)))))
         path_SE  = G3 @ (JR_plus @ (G2 @ (JL_plus @ (G1 @ (JR_minus @ rho_vec)))))
@@ -157,6 +187,8 @@ class LiouvilleSpectroscopySolver:
         tr_GSB = (I_vec @ (JL_out @ path_GSB)).reshape(-1)
         tr_SE  = (I_vec @ (JL_out @ path_SE)).reshape(-1)
         tr_ESA = (I_vec @ (JL_out @ path_ESA)).reshape(-1)
+
+        self.profiling["feynman_pathways"] += time.time() - t_path_start
         
         return -1j * (tr_GSB + tr_SE - tr_ESA)
 
@@ -175,14 +207,17 @@ class LiouvilleSpectroscopySolver:
         L_w1 = self._get_L_eff(w1)
         L_w3 = self._get_L_eff(w3)
         L_0  = self._get_L_eff(0.0)
-        
+
+        t_inv_start = time.time()
         # G1 is at +w1 for non-rephasing
         G1 = np.linalg.inv((w1 + 1j * self.eta) * I_super - L_w1)
         G3 = np.linalg.inv((w3 + 1j * self.eta) * I_super - L_w3)
+        self.profiling["resolvent_inversions"] += time.time() - t_inv_start
 
         evals, evecs = np.linalg.eig(-1j * L_0 * tau2)
         G2 = (evecs * np.exp(evals)[:, np.newaxis, :]) @ np.linalg.inv(evecs)
         
+        t_path_start = time.time()
         # Non-rephasing sequence
         path_GSB = G3 @ (JL_plus @ (G2 @ (JL_minus @ (G1 @ (JL_plus @ rho_vec)))))
         path_SE  = G3 @ (JR_plus @ (G2 @ (JR_minus @ (G1 @ (JL_plus @ rho_vec)))))
@@ -195,6 +230,8 @@ class LiouvilleSpectroscopySolver:
         tr_GSB = (I_vec @ (JL_out @ path_GSB)).reshape(-1)
         tr_SE  = (I_vec @ (JL_out @ path_SE)).reshape(-1)
         tr_ESA = (I_vec @ (JL_out @ path_ESA)).reshape(-1)
+
+        self.profiling["feynman_pathways"] += time.time() - t_path_start
         
         return -1j * (tr_GSB + tr_SE - tr_ESA)
 
@@ -209,22 +246,58 @@ class LiouvilleSpectroscopySolver:
         
         S3_reph = np.zeros((n_w, n_w), dtype=complex)
         S3_unreph = np.zeros((n_w, n_w), dtype=complex)
+
+        print(f"Début du balayage 2D : Grille de {n_w}x{n_w} points...")
+        t_scan_start = time.time()
         
         for i, w1 in enumerate(w_list):
             for j, w3 in enumerate(w_list):
                 # Simultaneous calculation for all k-points
-                vec_reph = self.calc_rephasing(-w3, -w1, tau2)
+                t0 = time.time()
+                vec_reph = self.calc_rephasing(w3, w1, tau2)
+                self.profiling["rephasing_total"] += time.time() - t0
+                
+                t0 = time.time()
                 vec_unreph = self.calc_unrephasing(w3, w1, tau2)
+                self.profiling["unrephasing_total"] += time.time() - t0
                 
                 # Numerical trapezoidal integration / sum over the Brillouin zone
+                t0 = time.time()
                 S3_reph[j, i] = np.sum(vec_reph) * dk / (2 * np.pi)
                 S3_unreph[j, i] = np.sum(vec_unreph) * dk / (2 * np.pi)
+                self.profiling["k_integration"] += time.time() - t0
+                
+        self.profiling["total_scan"] = time.time() - t_scan_start 
+        self._print_profiling_report()       
                 
         return {
             "rephasing": S3_reph,
             "unrephasing": S3_unreph,
             "absorptive": S3_reph + S3_unreph
         }
+    
+    def _print_profiling_report(self):
+        """Print a report of the execution time in % and seconds"""
+        total = self.profiling["total_scan"]
+        print("\n" + "="*50)
+        print(" Report - LIOUVILLE SPECTROSCOPY ")
+        print("="*50)
+        print(f"Total execution times: {total:.2f} seconds")
+        print("-" * 50)
+        
+        # Détail des sous-catégories
+        categories = {
+            "Rephasing global": self.profiling["rephasing_total"],
+            "Unrephasing global": self.profiling["unrephasing_total"],
+            "-> Inversions (G1, G2, G3)": self.profiling["resolvent_inversions"],
+            "-> Contractions Feynman": self.profiling["feynman_pathways"],
+            "Intégration (Sum k)": self.profiling["k_integration"]
+        }
+        
+        for name, timing in categories.items():
+            percent = (timing / total) * 100 if total > 0 else 0
+            print(f"{name:<28} : {timing:>6.2f} s  ({percent:>5.1f}%)")
+        print("="*50 + "\n")
 
 
 class SpectroscopyPlotter:

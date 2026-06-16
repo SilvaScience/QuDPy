@@ -42,50 +42,66 @@ class LiouvilleSpectroscopySolver:
             "total_scan": 0.0
         }
 
-    def feed_model(self, H_model, J_model, mu_optical):
+    def feed_model(self, H_model, interaction_op_array, c_ops_raw=None, interaction_type="dipole"):
         """
-        Receives the Hamiltonian and Current in the site basis (N_k, d, d).
+        Receives the Hamiltonian and interaction operator (dipole or current) in the site basis (N_k, d, d).
         Diagonalizes the system and universally separates the operators according to the RWA.
         """
+        print(f"--- Chargement du modèle (Type d'interaction : {interaction_type}) ---")
         self.N_k, self.dim, _ = H_model.shape
-        d = self.dim
-        
-        # 1. Diagonalization of the Hamiltonian over all k-points
-        evals, evecs = np.linalg.eigh(H_model)
-        
-        # Proper construction of H_eigen (diagonal)
-        self.H_eigen = np.zeros_like(H_model)
-        for i in range(d):
-            self.H_eigen[:, i, i] = evals[:, i]
+
+        # H_eigen est de retour à sa dimension 3D (N_k, dim, dim)
+        self.H_eigen = np.zeros((self.N_k, self.dim, self.dim), dtype=float)
+        self.J_plus = np.zeros((self.N_k, self.dim, self.dim), dtype=complex)
+        self.J_minus = np.zeros((self.N_k, self.dim, self.dim), dtype=complex)
+
+        if c_ops_raw is not None:
+            self.c_ops_eigen = [np.zeros((self.N_k, self.dim, self.dim), dtype=complex) for _ in c_ops_raw]
+
+        for i_k in range(self.N_k):
+            # 1. Diagonalisation de l'Hamiltonien
+            evals, evecs = np.linalg.eigh(H_model[i_k])
             
-        # 2. Rotation of the current operator into the eigenstate basis
-        V_dag = np.conj(evecs.transpose(0, 2, 1))
-        J_eigen = V_dag @ J_model @ evecs
-        #    Rotation of the dipole operators
-
-        mu_eigen = V_dag @ mu_optical @ evecs
-
-
-        self.c_ops_eigen = []
-        for self.c_ops, gamma in self.c_ops:
-            # On étend C_local sur N_k s'il est statique
-            C_k = np.tile(self.c_ops, (self.N_k, 1, 1))
+            # Reconstruction de H_eigen sous forme de matrice diagonale 3D
+            for i in range(self.dim):
+                self.H_eigen[i_k, i, i] = evals[i]
             
-            # Rotation dans la base propre
-            C_eigen = V_dag @ C_k @ evecs
-            self.c_ops_eigen.append((C_eigen, gamma))
-        
-        # 3. Universal application of the RWA (independent of the number of bands)
-        self.J_plus = np.zeros_like(J_eigen)
-        self.J_minus = np.zeros_like(J_eigen)
-        
-        # j > i implies an upward transition in energy (absorption)
-        for i in range(d):
-            for j in range(d):
-                if j > i:
-                    self.J_plus[:, j, i] = J_eigen[:, j, i]
-                elif j < i:
-                    self.J_minus[:, j, i] = J_eigen[:, j, i]
+            U = evecs
+            U_dag = U.conj().T
+
+            # 2. Projection de l'opérateur d'interaction (maintenant toujours 3D en entrée)
+            O_k_raw = interaction_op_array[i_k]
+            O_eigen = U_dag @ O_k_raw @ U
+            
+            # 3. Séparation J+ et J- selon le type d'interaction
+            if interaction_type == "dipole":
+                # RWA (Rotating Wave Approximation) stricte
+                for r in range(self.dim):
+                    for c in range(self.dim):
+                        # Tolérance numérique pour éviter les instabilités
+                        if evals[r] - evals[c] > 1e-6: 
+                            self.J_plus[i_k, r, c] = O_eigen[r, c]
+                        elif evals[r] - evals[c] < -1e-6:
+                            self.J_minus[i_k, r, c] = O_eigen[r, c]
+                            
+            elif interaction_type == 'current':
+                # Symétrie pour le courant (absorption si j > i)
+                for i in range(self.dim):
+                    for j in range(self.dim):
+                        if j > i:
+                            self.J_plus[i_k, j, i] = O_eigen[j, i]
+                        elif j < i:
+                            self.J_minus[i_k, j, i] = O_eigen[j, i]
+            else:
+                raise ValueError("interaction_type need to be:  'dipole' or 'current'")
+            
+            # 4. Projection des opérateurs de dissipation (Lindblad)
+            if c_ops_raw is not None:
+                for idx, c_op in enumerate(c_ops_raw):
+                    self.c_ops_eigen[idx][i_k] = U_dag @ c_op @ U
+
+        print("Model transform in the EigenBasis")
+
 
     def set_dissipation(self, c_ops_list):
         """
@@ -126,10 +142,11 @@ class LiouvilleSpectroscopySolver:
     def _get_thermal_state(self):
         """Computes the vectorized initial thermal equilibrium state (N_k, d^2, 1)"""
         d = self.dim
+        kB = 8.6173e-5
         mu = self.params.get("mu", 0.0)
         
         if self.T > 0:
-            beta = 1.0 / self.T
+            beta = 1.0 / (kB * self.T)
             energies = np.array([self.H_eigen[:, i, i] for i in range(d)]).T
             exp_factors = np.exp(-beta * (energies - mu))
             rho_diag = exp_factors / np.sum(exp_factors, axis=1, keepdims=True)
@@ -250,8 +267,8 @@ class LiouvilleSpectroscopySolver:
         print(f"Début du balayage 2D : Grille de {n_w}x{n_w} points...")
         t_scan_start = time.time()
         
-        for i, w1 in enumerate(w_list):
-            for j, w3 in enumerate(w_list):
+        for i, w3 in enumerate(w_list):
+            for j, w1 in enumerate(w_list):
                 # Simultaneous calculation for all k-points
                 t0 = time.time()
                 vec_reph = self.calc_rephasing(w3, w1, tau2)
@@ -304,7 +321,7 @@ class SpectroscopyPlotter:
     def __init__(self, w_list): 
         self.w_list = w_list
 
-    def plot_spectrum(self, S3_topo, S3_triv, levels=60, figsize=(12, 14), save_path=None):
+    def plot_spectrum(self, S3_rephasing, S3_nonrephasing, levels=60, figsize=(12, 14), save_path=None):
         """
         Displays a 3x2 figure with the 2D spectra (Real, Imag, Abs)
         for the topological and trivial phases.
@@ -315,26 +332,26 @@ class SpectroscopyPlotter:
         # ==========================================
         # ROW 1: REAL PART
         # ==========================================
-        self._plot_subplot(axes[0, 0], w, np.real(S3_topo), levels, 'RdBu_r', 
-                           r"Real / Topo ($t_2 > t_1$)", ylabel=r"$\omega_3$")
-        self._plot_subplot(axes[0, 1], w, np.real(S3_triv), levels, 'RdBu_r', 
-                           r"Real / Triv ($t_1 > t_2$)")
+        self._plot_subplot(axes[0, 0], w, np.real(S3_rephasing), levels, 'RdBu_r', 
+                           r"Real / Rephasing ", ylabel=r"$\omega_3$")
+        self._plot_subplot(axes[0, 1], w, np.real(S3_nonrephasing), levels, 'RdBu_r', 
+                           r"Real / Nonrephasing")
 
         # ==========================================
         # ROW 2: IMAGINARY PART
         # ==========================================
-        self._plot_subplot(axes[1, 0], w, np.imag(S3_topo), levels, 'RdBu_r', 
-                           r"Imag / Topo ($t_2 > t_1$)", ylabel=r"$\omega_3$")
-        self._plot_subplot(axes[1, 1], w, np.imag(S3_triv), levels, 'RdBu_r', 
-                           r"Imag / Triv ($t_1 > t_2$)")
+        self._plot_subplot(axes[1, 0], w, np.imag(S3_rephasing), levels, 'RdBu_r', 
+                           r"Imag / Rephasing", ylabel=r"$\omega_3$")
+        self._plot_subplot(axes[1, 1], w, np.imag(S3_nonrephasing), levels, 'RdBu_r', 
+                           r"Imag / Nonrephasing")
 
         # ==========================================
         # ROW 3: ABSOLUTE VALUE
         # ==========================================
-        self._plot_subplot(axes[2, 0], w, np.abs(S3_topo), levels, 'magma', 
-                           r"Abs / Topo ($t_2 > t_1$)", xlabel=r"$\omega_1$", ylabel=r"$\omega_3$", vmin=0)
-        self._plot_subplot(axes[2, 1], w, np.abs(S3_triv), levels, 'magma', 
-                           r"Abs / Triv ($t_1 > t_2$)", xlabel=r"$\omega_1$", vmin=0)
+        self._plot_subplot(axes[2, 0], w, np.abs(S3_rephasing), levels, 'magma', 
+                           r"Abs / Rephasing", xlabel=r"$\omega_1$", ylabel=r"$\omega_3$", vmin=0)
+        self._plot_subplot(axes[2, 1], w, np.abs(S3_nonrephasing), levels, 'magma', 
+                           r"Abs / Nonrephasing", xlabel=r"$\omega_1$", vmin=0)
 
         plt.tight_layout()
         

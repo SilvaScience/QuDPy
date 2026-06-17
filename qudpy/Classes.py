@@ -10,6 +10,7 @@ import os
 from qutip import *
 import numpy as np
 import matplotlib.pyplot as plt
+from tqdm import tqdm, trange
 
 class System:
     """
@@ -168,7 +169,7 @@ class System:
                 coherence_time = np.linspace(0, delta_t, int(delta_t*r))
                 # evolving each state in the list states and storing only the last state
 
-                states = [mesolve(self.H, state, coherence_time, self.c_ops, e_ops=self.e_ops).states[-1] for state in states]
+                states = [mesolve(self.H, state, coherence_time, self.c_ops, e_ops=self.e_ops).states[-1] for state in tqdm(states)]
 
         
         # Now at this point only last interaction and last scan-able delay is left.
@@ -179,27 +180,28 @@ class System:
         t_list = np.linspace(0, delta_t, int(delta_t*r))
         final_states = []
 
-        states = [mesolve(self.H, state, t_list, self.c_ops, e_ops=self.e_ops).states for state in states]
+        states = [mesolve(self.H, state, t_list, self.c_ops, e_ops=self.e_ops).states for state in tqdm(states)]
         
         i = scan_id[1]+1
 
-        while i < len(diagram):  
-            for s in range(len(states)):
-                    for h in range(len(states[s])):
-                        states[s][h] = self.apply_pulse(states[s][h], diagram[3])
+        while i < len(diagram):
+            for s in trange(len(states)):
+                for h in trange(len(states[s])):
+                    states[s][h] = self.apply_pulse(states[s][h], diagram[3])
 
             delta_t = time_delays[i]
             i =  i+1
             if delta_t > 0:
                 coherence_time = np.linspace(0, delta_t, int(delta_t*r))
-                for s in range(len(states)):
-                        for h in range(len(states[s])):
+                for s in trange(len(states)):
+                        print("l204", len(states[s]))
+                        for h in trange(len(states[s])):
                             states[s][h] = mesolve(self.H, states[s][h], coherence_time, self.c_ops, e_ops=self.e_ops).states[-1]
 
 
         final_states = states
 
-        dipole = np.array([expect(self.u, final_states[x][:]) for x in range(len(final_states))])
+        dipole = np.array([expect(self.u, final_states[x][:]) for x in trange(len(final_states))])
 
         print('second scan done')
         return final_states, np.linspace(0, time_delays[scan_id[0]], int(time_delays[scan_id[0]] * r)), t_list, dipole
@@ -393,9 +395,9 @@ class System:
         plt.ylabel('Dipole')
         plt.xlim(-np.pi, np.pi)
         plt.title('Spectrum from linear response (Bu)')
-        if title_graph is not None:
-            os.makedirs(dir, exist_ok=True)
-            plt.savefig(dir+title_graph+'.png')
+        # if title_graph is not None:
+        #     os.makedirs(dir, exist_ok=True)
+        #     plt.savefig(dir+title_graph+'.png')
         if plot_graph:
             plt.show()
         else:

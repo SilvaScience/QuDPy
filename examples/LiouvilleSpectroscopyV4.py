@@ -81,20 +81,12 @@ class LiouvilleSpectroscopySolver:
         self._dense_resolvent_cache = OrderedDict()
         self._dense_tau2_cache = OrderedDict()
 
-        self._reset_profiling()
+
 
     # ========================================================================
     # INPUT NORMALIZATION
     # ========================================================================
-    def _reset_profiling(self):
-        self.profiling = {
-            "rephasing_total": 0.0,
-            "unrephasing_total": 0.0,
-            "resolvent_inversions": 0.0,
-            "feynman_pathways": 0.0,
-            "k_integration": 0.0,
-            "total_scan": 0.0,
-        }
+
 
     def _clean_gamma(self, gamma):
         """Return a real scalar Lindblad rate."""
@@ -419,10 +411,10 @@ class LiouvilleSpectroscopySolver:
         if cached is not None:
             return cached
 
-        t0 = time.time()
+   
         A = (w + 1j * self.eta) * self._I_super_dense - self._L_eff_dense
         G = np.linalg.inv(A)
-        self.profiling["resolvent_inversions"] += time.time() - t0
+      
 
         self._dense_resolvent_cache[key] = G
         self._dense_resolvent_cache.move_to_end(key)
@@ -440,17 +432,17 @@ class LiouvilleSpectroscopySolver:
         if cached is not None:
             return cached
 
-        t0 = time.time()
+    
         evals, evecs = np.linalg.eig(-1j * self._L_eff_dense * tau2)
         G2 = (evecs * np.exp(evals)[:, np.newaxis, :]) @ np.linalg.inv(evecs)
-        self.profiling["resolvent_inversions"] += time.time() - t0
+      
 
         self._dense_tau2_cache[key] = G2
         return G2
 
     def _calc_rephasing_dense(self, w3, w1, tau2):
         """Compute rephasing diagrams with the dense batched backend."""
-        t_path_start = time.time()
+      
 
         G1 = self._get_dense_resolvent(w1)
         G2 = self._get_dense_tau2_propagator(tau2)
@@ -474,12 +466,12 @@ class LiouvilleSpectroscopySolver:
         tr_se = (self._trace_vec_dense @ (self._JL_out_dense @ path_se)).reshape(-1)
         tr_esa = (self._trace_vec_dense @ (self._JL_out_dense @ path_esa)).reshape(-1)
 
-        self.profiling["feynman_pathways"] += time.time() - t_path_start
+       
         return -1j * (tr_gsb + tr_se - tr_esa)
 
     def _calc_unrephasing_dense(self, w3, w1, tau2):
         """Compute non-rephasing diagrams with the dense batched backend."""
-        t_path_start = time.time()
+    
 
         G1 = self._get_dense_resolvent(w1)
         G2 = self._get_dense_tau2_propagator(tau2)
@@ -503,7 +495,7 @@ class LiouvilleSpectroscopySolver:
         tr_se = (self._trace_vec_dense @ (self._JL_out_dense @ path_se)).reshape(-1)
         tr_esa = (self._trace_vec_dense @ (self._JL_out_dense @ path_esa)).reshape(-1)
 
-        self.profiling["feynman_pathways"] += time.time() - t_path_start
+       
         return -1j * (tr_gsb + tr_se - tr_esa)
 
     # ========================================================================
@@ -612,7 +604,7 @@ class LiouvilleSpectroscopySolver:
 
             if solve is not None:
                 result = solve(rhs)
-                self.profiling["resolvent_inversions"] += time.time() - t0
+                
                 return result
 
         if A is None:
@@ -629,7 +621,7 @@ class LiouvilleSpectroscopySolver:
             raise RuntimeError(
                 f"GMRES did not converge for k={i_k}, w={w}. info={info}"
             )
-        self.profiling["resolvent_inversions"] += time.time() - t0
+       
         return result
 
     def _propagate_tau2(self, i_k, tau2, rhs):
@@ -682,7 +674,7 @@ class LiouvilleSpectroscopySolver:
         if not self._L_eff_sp:
             raise RuntimeError("Call feed_model() before calc_rephasing().")
 
-        t_path_start = time.time()
+ 
         response = np.zeros(self.N_k, dtype=np.complex128)
 
         for i_k in range(self.N_k):
@@ -711,7 +703,7 @@ class LiouvilleSpectroscopySolver:
 
             response[i_k] = -1j * (tr_gsb + tr_se - tr_esa)
 
-        self.profiling["feynman_pathways"] += time.time() - t_path_start
+   
         return response
 
     def calc_unrephasing(self, w3, w1, tau2):
@@ -722,7 +714,7 @@ class LiouvilleSpectroscopySolver:
         if not self._L_eff_sp:
             raise RuntimeError("Call feed_model() before calc_unrephasing().")
 
-        t_path_start = time.time()
+     
         response = np.zeros(self.N_k, dtype=np.complex128)
 
         for i_k in range(self.N_k):
@@ -751,7 +743,7 @@ class LiouvilleSpectroscopySolver:
 
             response[i_k] = -1j * (tr_gsb + tr_se - tr_esa)
 
-        self.profiling["feynman_pathways"] += time.time() - t_path_start
+     
         return response
 
     def generate_2D_spectra(self, w_list, tau2, k_array=None):
@@ -767,7 +759,7 @@ class LiouvilleSpectroscopySolver:
         if self.N_k is None:
             raise RuntimeError("Call feed_model() before generate_2D_spectra().")
 
-        self._reset_profiling()
+        
         self._resolvent_cache.clear()
         self._dense_resolvent_cache.clear()
         self._dense_tau2_cache.clear()
@@ -793,54 +785,28 @@ class LiouvilleSpectroscopySolver:
             f"Starting 2D scan on a {n_w}x{n_w} frequency grid "
             f"with the {self._active_backend} backend..."
         )
-        t_scan_start = time.time()
+       
 
         for i, w3 in enumerate(w_list):
             for j, w1 in enumerate(w_list):
-                t0 = time.time()
+               
                 vec_reph = self.calc_rephasing(w3, w1, tau2)
-                self.profiling["rephasing_total"] += time.time() - t0
+                
 
-                t0 = time.time()
+               
                 vec_unreph = self.calc_unrephasing(w3, w1, tau2)
-                self.profiling["unrephasing_total"] += time.time() - t0
-
-                t0 = time.time()
+               
+                
                 S3_reph[j, i] = np.sum(vec_reph) * integration_factor
                 S3_unreph[j, i] = np.sum(vec_unreph) * integration_factor
-                self.profiling["k_integration"] += time.time() - t0
-
-        self.profiling["total_scan"] = time.time() - t_scan_start
-        self._print_profiling_report()
-
+                
         return {
             "rephasing": S3_reph,
             "unrephasing": S3_unreph,
             "absorptive": S3_reph + S3_unreph,
         }
 
-    def _print_profiling_report(self):
-        """Print an execution-time report."""
-        total = self.profiling["total_scan"]
-        print("\n" + "=" * 54)
-        print(" Liouville Spectroscopy Profiling Report ")
-        print("=" * 54)
-        print(f"Total execution time: {total:.2f} seconds")
-        print("-" * 54)
 
-        categories = {
-            "Rephasing response": self.profiling["rephasing_total"],
-            "Non-rephasing response": self.profiling["unrephasing_total"],
-            "Resolvent / G2 setup": self.profiling["resolvent_inversions"],
-            "Pathway contractions": self.profiling["feynman_pathways"],
-            "k-space integration": self.profiling["k_integration"],
-        }
-
-        for name, timing in categories.items():
-            percent = (timing / total) * 100 if total > 0 else 0.0
-            print(f"{name:<28} : {timing:>8.2f} s  ({percent:>5.1f}%)")
-
-        print("=" * 54 + "\n")
 
 
 class SpectroscopyPlotter:

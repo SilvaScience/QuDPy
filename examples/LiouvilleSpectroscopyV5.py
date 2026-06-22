@@ -1,4 +1,8 @@
 from collections import OrderedDict
+from concurrent.futures import ProcessPoolExecutor
+from contextlib import nullcontext
+import math
+import os
 import time
 
 import matplotlib.pyplot as plt
@@ -6,6 +10,32 @@ import numpy as np
 from scipy import sparse as sp
 from scipy.sparse.linalg import expm, expm_multiply, factorized, gmres
 from joblib import Parallel, delayed
+
+try:
+    from threadpoolctl import threadpool_limits
+except ImportError:
+    threadpool_limits = None
+
+
+_PROCESS_SOLVER = None
+
+
+def _init_process_solver(solver):
+    """Store one solver copy per process worker."""
+    global _PROCESS_SOLVER
+    _PROCESS_SOLVER = solver
+
+
+def _calc_w3_block_process(block, w_list, tau2, integration_factor):
+    """ProcessPool worker entry point using the process-local solver."""
+    if _PROCESS_SOLVER is None:
+        raise RuntimeError("Process worker was not initialized with a solver.")
+    return _PROCESS_SOLVER._calc_w3_block(block, w_list, tau2, integration_factor)
+
+
+def _calc_w3_block_joblib(solver, block, w_list, tau2, integration_factor):
+    """Joblib worker entry point for process-style backends."""
+    return solver._calc_w3_block(block, w_list, tau2, integration_factor)
 
 ###################################################################################
 #################             Author: Mathieu Desmarais            ################
@@ -42,6 +72,10 @@ class LiouvilleSpectroscopySolver:
         self.sparse_gmres_atol = params.get("sparse_gmres_atol", 0.0)
         self.sparse_gmres_maxiter = params.get("sparse_gmres_maxiter", None)
         self.cache_sparse_tau2 = params.get("cache_sparse_tau2", False)
+        self.parallel_backend = params.get("parallel_backend", "threading")
+        self.parallel_block_size = params.get("parallel_block_size", None)
+        self.blas_threads = params.get("blas_threads", None)
+        self.n_jobs = params.get("n_jobs", -1)
         self._active_backend = None
         self._sparse_direct_failed = False
 
@@ -97,12 +131,110 @@ class LiouvilleSpectroscopySolver:
 
         for j, w1 in enumerate(w_list):
             vect_reph = self.calc_rephasing(w3, w1, tau2)
-            vect_unreph = np.zeros(n_w, dtype=np.complex128)
+            vect_unreph = self.calc_unrephasing(w3, w1, tau2)
 
             col_reph[j] = np.sum(vect_reph) * integration_factor
-            col_unreph = np.sum(vect_unreph) * integration_factor
+            col_unreph[j] = np.sum(vect_unreph) * integration_factor
 
         return i, col_reph, col_unreph
+
+    def _calc_w3_block(self, block, w_list, tau2, integration_factor):
+        """Calculate a block of omega_3 columns."""
+        return [
+            self._calc_w3_column(i, w_list[i], w_list, tau2, integration_factor)
+            for i in block
+        ]
+
+    def _effective_n_jobs(self, n_jobs):
+        """Normalize joblib-style worker counts."""
+        cpu_count = os.cpu_count() or 1
+        if n_jobs is None:
+            return 1
+        if n_jobs < 0:
+            return max(1, cpu_count + 1 + n_jobs)
+        return max(1, int(n_jobs))
+
+    def _make_w3_blocks(self, n_w, n_jobs, block_size):
+        """Split omega_3 column indices into backend tasks."""
+        if block_size is None:
+            block_size = self.parallel_block_size
+        if block_size is None:
+            target_blocks = max(1, 4 * max(1, n_jobs))
+            block_size = max(1, math.ceil(n_w / target_blocks))
+        block_size = max(1, int(block_size))
+        return [
+            list(range(start, min(start + block_size, n_w)))
+            for start in range(0, n_w, block_size)
+        ]
+
+    def _parallel_context(self, blas_threads):
+        """Limit nested BLAS/OpenMP threads while the outer omega loop runs."""
+        if blas_threads is None:
+            blas_threads = self.blas_threads
+        if blas_threads is None or threadpool_limits is None:
+            return nullcontext()
+        return threadpool_limits(limits=blas_threads)
+
+    def _run_w3_blocks(
+        self,
+        blocks,
+        w_list,
+        tau2,
+        integration_factor,
+        parallel_backend,
+        n_jobs,
+    ):
+        """Run omega_3 blocks using the selected parallel backend."""
+        if parallel_backend in {"serial", None} or n_jobs == 1:
+            return [
+                item
+                for block in blocks
+                for item in self._calc_w3_block(block, w_list, tau2, integration_factor)
+            ]
+
+        if parallel_backend == "threading":
+            nested = Parallel(n_jobs=n_jobs, backend="threading")(
+                delayed(self._calc_w3_block)(
+                    block, w_list, tau2, integration_factor
+                )
+                for block in blocks
+            )
+        elif parallel_backend in {"loky", "multiprocessing"}:
+            nested = Parallel(
+                n_jobs=n_jobs,
+                backend=parallel_backend,
+                max_nbytes="10M",
+                mmap_mode="r",
+            )(
+                delayed(_calc_w3_block_joblib)(
+                    self, block, w_list, tau2, integration_factor
+                )
+                for block in blocks
+            )
+        elif parallel_backend in {"process", "processpool"}:
+            with ProcessPoolExecutor(
+                max_workers=n_jobs,
+                initializer=_init_process_solver,
+                initargs=(self,),
+            ) as pool:
+                futures = [
+                    pool.submit(
+                        _calc_w3_block_process,
+                        block,
+                        w_list,
+                        tau2,
+                        integration_factor,
+                    )
+                    for block in blocks
+                ]
+                nested = [future.result() for future in futures]
+        else:
+            raise ValueError(
+                "parallel_backend must be one of: "
+                "'serial', 'threading', 'loky', 'multiprocessing', or 'process'"
+            )
+
+        return [item for block_result in nested for item in block_result]
 
 
     # ========================================================================
@@ -768,9 +900,31 @@ class LiouvilleSpectroscopySolver:
      
         return response
 
-    def generate_2D_spectra(self, w_list, tau2, k_array=None, n_jobs=-1):
+    def generate_2D_spectra(
+        self,
+        w_list,
+        tau2,
+        k_array=None,
+        n_jobs=None,
+        parallel_backend=None,
+        block_size=None,
+        blas_threads=None,
+        verbose=True,
+    ):
         """
         Scan the w1/w3 grid and integrate over k.
+
+        Parameters
+        ----------
+        parallel_backend : {"serial", "threading", "loky", "multiprocessing", "process"}
+            Backend used for the omega_3 column loop. "process" uses a
+            ProcessPoolExecutor initializer so the solver is copied once per
+            worker instead of once per omega block.
+        block_size : int or None
+            Number of omega_3 columns per submitted task. Larger blocks reduce
+            process-backend overhead.
+        blas_threads : int or None
+            Optional limit for nested BLAS/OpenMP threads during this scan.
 
         Returns
         -------
@@ -778,6 +932,8 @@ class LiouvilleSpectroscopySolver:
             Complex 2D response matrices for rephasing, non-rephasing, and
             absorptive spectra.
         """
+        if n_jobs is None:
+            n_jobs = self.n_jobs
         if self.N_k is None:
             raise RuntimeError("Call feed_model() before generate_2D_spectra().")
 
@@ -803,16 +959,28 @@ class LiouvilleSpectroscopySolver:
         S3_reph = np.zeros((n_w, n_w), dtype=np.complex128)
         S3_unreph = np.zeros((n_w, n_w), dtype=np.complex128)
 
-        print(
-            f"Starting 2D scan on a {n_w}x{n_w} frequency grid "
-            f"with the {self._active_backend} backend using {n_jobs if n_jobs != -1 else 'all'} workers..."
-        )
-        
+        if parallel_backend is None:
+            parallel_backend = self.parallel_backend
+        n_jobs_eff = self._effective_n_jobs(n_jobs)
+        blocks = self._make_w3_blocks(n_w, n_jobs_eff, block_size)
 
-        results = Parallel(n_jobs=n_jobs, backend="threading")(
-            delayed(self._calc_w3_column)(i, w3, w_list, tau2, integration_factor)
-            for i, w3 in enumerate(w_list)
-        )
+        if verbose:
+            print(
+                f"Starting 2D scan on a {n_w}x{n_w} frequency grid "
+                f"with Liouville={self._active_backend}, "
+                f"parallel={parallel_backend}, n_jobs={n_jobs_eff}, "
+                f"block_size={len(blocks[0]) if blocks else 0}."
+            )
+
+        with self._parallel_context(blas_threads):
+            results = self._run_w3_blocks(
+                blocks,
+                w_list,
+                tau2,
+                integration_factor,
+                parallel_backend,
+                n_jobs_eff,
+            )
         
 
         for i, col_reph, col_unreph in results:
@@ -826,6 +994,119 @@ class LiouvilleSpectroscopySolver:
             "unrephasing": S3_unreph,
             "absorptive": S3_reph + S3_unreph,
         }
+
+    def benchmark_2D_parallel_backends(
+        self,
+        w_list,
+        tau2,
+        k_array=None,
+        backends=("serial", "threading", "loky", "process"),
+        n_jobs_values=(1, 2, 4),
+        block_size=None,
+        blas_threads=1,
+        repeats=1,
+        max_w_points=None,
+    ):
+        """
+        Benchmark omega-loop parallel backends for generate_2D_spectra().
+
+        The first serial run is used as the numerical reference. The returned
+        list contains elapsed time, speedup, and max absolute difference from
+        that reference for each backend/job-count pair.
+        """
+        n_w = len(w_list)
+        d = self.dim
+        d2 = d**2 if d is not None else None
+
+        print("\n--- 2D parallel benchmark context ---")
+        print(f"Liouville backend      : {self._active_backend}")
+        print(f"Hilbert dimension      : {d}")
+        print(f"Liouville dimension    : {d2}")
+        print(f"k-points               : {self.N_k}")
+        print(f"omega points           : {n_w}")
+        print(f"omega grid             : {n_w} x {n_w} = {n_w**2} omega pairs")
+        print(f"tau2                   : {tau2}")
+        print(f"Eta                    : {self.eta}")
+        print(f"BLAS threads limit     : {blas_threads}")
+        print(f"tested backends        : {backends}")
+        print(f"tested n_jobs          : {n_jobs_values}")
+        print(f"block_size             : {block_size}")
+        print(f"repeats                : {repeats}")
+
+        if self._active_backend == "sparse":
+            print(f"sparse_solver          : {self.sparse_solver}")
+            print(f"cache_resolvents       : {self.cache_resolvents}")
+            print(f"cache_sparse_tau2      : {self.cache_sparse_tau2}")
+            print(f"gmres rtol             : {self.sparse_gmres_rtol}")
+            print(f"gmres maxiter          : {self.sparse_gmres_maxiter}")
+
+        if self._active_backend == "dense":
+            print(f"dense_liouville_cutoff : {self.dense_liouville_cutoff}")
+
+        print("-------------------------------------\n")
+
+
+
+
+
+        w_bench = np.asarray(w_list, dtype=float)
+        if max_w_points is not None:
+            w_bench = w_bench[: int(max_w_points)]
+
+        reference = None
+        reference_time = None
+        rows = []
+
+        for backend in backends:
+            jobs_to_run = (1,) if backend == "serial" else n_jobs_values
+            for n_jobs in jobs_to_run:
+                best_elapsed = np.inf
+                best_spectra = None
+
+                for _ in range(max(1, int(repeats))):
+                    t0 = time.perf_counter()
+                    spectra = self.generate_2D_spectra(
+                        w_bench,
+                        tau2,
+                        k_array=k_array,
+                        n_jobs=n_jobs,
+                        parallel_backend=backend,
+                        block_size=block_size,
+                        blas_threads=blas_threads,
+                        verbose=False,
+                    )
+                    elapsed = time.perf_counter() - t0
+                    if elapsed < best_elapsed:
+                        best_elapsed = elapsed
+                        best_spectra = spectra
+
+                if reference is None:
+                    reference = best_spectra
+                    reference_time = best_elapsed
+
+                max_abs_diff = float(
+                    np.max(
+                        np.abs(best_spectra["absorptive"] - reference["absorptive"])
+                    )
+                )
+                speedup = reference_time / best_elapsed if best_elapsed > 0 else np.inf
+                row = {
+                    "backend": backend,
+                    "n_jobs": self._effective_n_jobs(n_jobs),
+                    "block_size": block_size,
+                    "elapsed_s": best_elapsed,
+                    "speedup_vs_serial": speedup,
+                    "max_abs_diff": max_abs_diff,
+                }
+                rows.append(row)
+                print(
+                    f"{backend:>15} n_jobs={row['n_jobs']:<3} "
+                    f"time={best_elapsed:8.3f}s "
+                    f"speedup={speedup:6.2f}x "
+                    f"max_abs_diff={max_abs_diff:.3e}"
+                )
+
+        return rows
 
 
 

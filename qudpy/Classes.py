@@ -176,6 +176,7 @@ class System:
         print('First scan done, starting second scan. Remaining time = First Scan Time x number of steps in second scan'
               + '/number of processors')
         states = [self.apply_pulse(state, diagram[scan_id[1]]) for state in states]
+
         delta_t = time_delays[scan_id[1]]
         t_list = np.linspace(0, delta_t, int(delta_t*r))
         final_states = []
@@ -185,23 +186,22 @@ class System:
         i = scan_id[1]+1
 
         while i < len(diagram):
-            for s in trange(len(states)):
-                for h in trange(len(states[s])):
+            for s in range(len(states)):
+                for h in range(len(states[s])):
                     states[s][h] = self.apply_pulse(states[s][h], diagram[3])
 
             delta_t = time_delays[i]
             i =  i+1
             if delta_t > 0:
                 coherence_time = np.linspace(0, delta_t, int(delta_t*r))
-                for s in trange(len(states)):
-                        print("l204", len(states[s]))
-                        for h in trange(len(states[s])):
+                for s in range(len(states)):
+                        for h in range(len(states[s])):
                             states[s][h] = mesolve(self.H, states[s][h], coherence_time, self.c_ops, e_ops=self.e_ops).states[-1]
 
 
         final_states = states
 
-        dipole = np.array([expect(self.u, final_states[x][:]) for x in trange(len(final_states))])
+        dipole = np.array([expect(self.u, final_states[x][:]) for x in range(len(final_states))])
 
         print('second scan done')
         return final_states, np.linspace(0, time_delays[scan_id[0]], int(time_delays[scan_id[0]] * r)), t_list, dipole

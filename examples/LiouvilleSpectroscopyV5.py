@@ -26,17 +26,20 @@ def _init_process_solver(solver):
     _PROCESS_SOLVER = solver
 
 
-def _calc_w3_block_process(block, w_list, tau2, integration_factor):
+def _calc_w3_block_process(block, w_list, tau2, integration_factor, spectrum_components):
     """ProcessPool worker entry point using the process-local solver."""
     if _PROCESS_SOLVER is None:
         raise RuntimeError("Process worker was not initialized with a solver.")
-    return _PROCESS_SOLVER._calc_w3_block(block, w_list, tau2, integration_factor)
+    return _PROCESS_SOLVER._calc_w3_block(
+        block, w_list, tau2, integration_factor, spectrum_components
+    )
 
 
-def _calc_w3_block_joblib(solver, block, w_list, tau2, integration_factor):
+def _calc_w3_block_joblib(solver, block, w_list, tau2, integration_factor, spectrum_components):
     """Joblib worker entry point for process-style backends."""
-    return solver._calc_w3_block(block, w_list, tau2, integration_factor)
-
+    return solver._calc_w3_block(
+        block, w_list, tau2, integration_factor, spectrum_components
+    )
 ###################################################################################
 #################             Author: Mathieu Desmarais            ################
 #################                Date: 10-06-2026                  ################
@@ -76,6 +79,9 @@ class LiouvilleSpectroscopySolver:
         self.parallel_block_size = params.get("parallel_block_size", None)
         self.blas_threads = params.get("blas_threads", None)
         self.n_jobs = params.get("n_jobs", -1)
+        self.spectrum_components = self._normalize_spectrum_components(
+            params.get("spectrum_components", "both")
+        )
         self._active_backend = None
         self._sparse_direct_failed = False
 
@@ -115,33 +121,77 @@ class LiouvilleSpectroscopySolver:
         self._dense_resolvent_cache = OrderedDict()
         self._dense_tau2_cache = OrderedDict()
 
+    def _normalize_spectrum_components(self, spectrum_components):
+        """Normalize the requested 2D spectrum components."""
+        if spectrum_components is None:
+            spectrum_components = getattr(self, "spectrum_components", "both")
+        spectrum_components = str(spectrum_components).lower()
+        valid = {"both", "rephasing", "unrephasing"}
+        if spectrum_components not in valid:
+            raise ValueError(
+                "spectrum_components must be one of: "
+                "'both', 'rephasing', or 'unrephasing'"
+            )
+        return spectrum_components
+
+    def _wants_rephasing(self, spectrum_components):
+        return spectrum_components in {"both", "rephasing"}
+
+    def _wants_unrephasing(self, spectrum_components):
+        return spectrum_components in {"both", "unrephasing"}
+
+    def _format_spectra_result(self, S3_reph, S3_unreph, spectrum_components):
+        """Build the public spectra dictionary for the requested components."""
+        result = {}
+        if self._wants_rephasing(spectrum_components):
+            result["rephasing"] = S3_reph
+        if self._wants_unrephasing(spectrum_components):
+            result["unrephasing"] = S3_unreph
+        if spectrum_components == "both":
+            result["absorptive"] = S3_reph + S3_unreph
+        return result
+
     # ========================================================================
     # Parallelisation method
     # ========================================================================
 
-    def _calc_w3_column(self, i, w3, w_list, tau2, integration_factor):
+    def _calc_w3_column(
+        self, i, w3, w_list, tau2, integration_factor, spectrum_components
+    ):
         """
-        Calcul a complete omega column of the 2D spectra for a w3 fix frequency.
-        This function is exectued by a independant worker.
+        Calculate a complete omega column of the 2D spectra for a fixed w3.
+        This function is executed by an independent worker.
         """
-
         n_w = len(w_list)
-        col_reph= np.zeros(n_w, dtype=np.complex128)
-        col_unreph = np.zeros(n_w, dtype=np.complex128)
+        col_reph = (
+            np.zeros(n_w, dtype=np.complex128)
+            if self._wants_rephasing(spectrum_components)
+            else None
+        )
+        col_unreph = (
+            np.zeros(n_w, dtype=np.complex128)
+            if self._wants_unrephasing(spectrum_components)
+            else None
+        )
 
         for j, w1 in enumerate(w_list):
-            vect_reph = self.calc_rephasing(w3, w1, tau2)
-            vect_unreph = self.calc_unrephasing(w3, w1, tau2)
-
-            col_reph[j] = np.sum(vect_reph) * integration_factor
-            col_unreph[j] = np.sum(vect_unreph) * integration_factor
+            if col_reph is not None:
+                vect_reph = self.calc_rephasing(w3, w1, tau2)
+                col_reph[j] = np.sum(vect_reph) * integration_factor
+            if col_unreph is not None:
+                vect_unreph = self.calc_unrephasing(w3, w1, tau2)
+                col_unreph[j] = np.sum(vect_unreph) * integration_factor
 
         return i, col_reph, col_unreph
 
-    def _calc_w3_block(self, block, w_list, tau2, integration_factor):
+    def _calc_w3_block(
+        self, block, w_list, tau2, integration_factor, spectrum_components
+    ):
         """Calculate a block of omega_3 columns."""
         return [
-            self._calc_w3_column(i, w_list[i], w_list, tau2, integration_factor)
+            self._calc_w3_column(
+                i, w_list[i], w_list, tau2, integration_factor, spectrum_components
+            )
             for i in block
         ]
 
@@ -183,19 +233,22 @@ class LiouvilleSpectroscopySolver:
         integration_factor,
         parallel_backend,
         n_jobs,
+        spectrum_components,
     ):
         """Run omega_3 blocks using the selected parallel backend."""
         if parallel_backend in {"serial", None} or n_jobs == 1:
             return [
                 item
                 for block in blocks
-                for item in self._calc_w3_block(block, w_list, tau2, integration_factor)
+                for item in self._calc_w3_block(
+                    block, w_list, tau2, integration_factor, spectrum_components
+                )
             ]
 
         if parallel_backend == "threading":
             nested = Parallel(n_jobs=n_jobs, backend="threading")(
                 delayed(self._calc_w3_block)(
-                    block, w_list, tau2, integration_factor
+                    block, w_list, tau2, integration_factor, spectrum_components
                 )
                 for block in blocks
             )
@@ -207,7 +260,12 @@ class LiouvilleSpectroscopySolver:
                 mmap_mode="r",
             )(
                 delayed(_calc_w3_block_joblib)(
-                    self, block, w_list, tau2, integration_factor
+                    self,
+                    block,
+                    w_list,
+                    tau2,
+                    integration_factor,
+                    spectrum_components,
                 )
                 for block in blocks
             )
@@ -224,6 +282,7 @@ class LiouvilleSpectroscopySolver:
                         w_list,
                         tau2,
                         integration_factor,
+                        spectrum_components,
                     )
                     for block in blocks
                 ]
@@ -652,6 +711,87 @@ class LiouvilleSpectroscopySolver:
        
         return -1j * (tr_gsb + tr_se - tr_esa)
 
+    def _precompute_rephasing_dense_rhs(self, w_list, G_list, G2):
+        """Precompute dense rephasing RHS vectors that only depend on w1."""
+        n_w = len(w_list)
+        d2 = self.dim**2
+        rhs = np.empty((3, n_w, self.N_k, d2, 1), dtype=np.complex128)
+        source = self._JR_minus_dense @ self._rho_eq_dense
+
+        for j, G1 in enumerate(G_list):
+            v1 = G1 @ source
+
+            mid_gsb = G2 @ (self._JR_plus_dense @ v1)
+            rhs[0, j] = self._JL_plus_dense @ mid_gsb
+
+            mid_se_esa = G2 @ (self._JL_plus_dense @ v1)
+            rhs[1, j] = self._JR_plus_dense @ mid_se_esa
+            rhs[2, j] = self._JL_plus_dense @ mid_se_esa
+
+        return rhs
+
+    def _precompute_unrephasing_dense_rhs(self, w_list, G_list, G2):
+        """Precompute dense non-rephasing RHS vectors that only depend on w1."""
+        n_w = len(w_list)
+        d2 = self.dim**2
+        rhs = np.empty((3, n_w, self.N_k, d2, 1), dtype=np.complex128)
+        source = self._JL_plus_dense @ self._rho_eq_dense
+
+        for j, G1 in enumerate(G_list):
+            v1 = G1 @ source
+
+            mid_gsb = G2 @ (self._JL_minus_dense @ v1)
+            rhs[0, j] = self._JL_plus_dense @ mid_gsb
+
+            mid_se_esa = G2 @ (self._JR_minus_dense @ v1)
+            rhs[1, j] = self._JR_plus_dense @ mid_se_esa
+            rhs[2, j] = self._JL_plus_dense @ mid_se_esa
+
+        return rhs
+
+    def _scan_dense_component_from_rhs(self, G_list, rhs, integration_factor):
+        """Apply every w3 resolvent to precomputed RHS vectors."""
+        n_w = len(G_list)
+        spectrum = np.empty((n_w, n_w), dtype=np.complex128)
+        trace_vec = self._trace_vec_dense[np.newaxis, np.newaxis, ...]
+        output_op = self._JL_out_dense[np.newaxis, np.newaxis, ...]
+
+        for i, G3 in enumerate(G_list):
+            paths = G3[np.newaxis, np.newaxis, ...] @ rhs
+            traces = (trace_vec @ (output_op @ paths)).reshape(3, n_w, self.N_k)
+            spectrum[:, i] = (
+                -1j
+                * np.sum(traces[0] + traces[1] - traces[2], axis=1)
+                * integration_factor
+            )
+
+        return spectrum
+
+    def _generate_2D_spectra_dense(
+        self, w_list, tau2, integration_factor, spectrum_components
+    ):
+        """Optimized dense 2D scan that reuses all w1-dependent RHS vectors."""
+        G_list = [self._get_dense_resolvent(w) for w in w_list]
+        G2 = self._get_dense_tau2_propagator(tau2)
+
+        S3_reph = None
+        S3_unreph = None
+
+        if self._wants_rephasing(spectrum_components):
+            rhs_reph = self._precompute_rephasing_dense_rhs(w_list, G_list, G2)
+            S3_reph = self._scan_dense_component_from_rhs(
+                G_list, rhs_reph, integration_factor
+            )
+
+        if self._wants_unrephasing(spectrum_components):
+            rhs_unreph = self._precompute_unrephasing_dense_rhs(w_list, G_list, G2)
+            S3_unreph = self._scan_dense_component_from_rhs(
+                G_list, rhs_unreph, integration_factor
+            )
+
+        return self._format_spectra_result(
+            S3_reph, S3_unreph, spectrum_components
+        )
     # ========================================================================
     # SPARSE LIOUVILLE ALGEBRA
     # ========================================================================
@@ -909,6 +1049,7 @@ class LiouvilleSpectroscopySolver:
         parallel_backend=None,
         block_size=None,
         blas_threads=None,
+        spectrum_components=None,
         verbose=True,
     ):
         """
@@ -925,19 +1066,25 @@ class LiouvilleSpectroscopySolver:
             process-backend overhead.
         blas_threads : int or None
             Optional limit for nested BLAS/OpenMP threads during this scan.
+        spectrum_components : {"both", "rephasing", "unrephasing"} or None
+            Components to calculate. None uses the value configured in params.
 
         Returns
         -------
         dict
-            Complex 2D response matrices for rephasing, non-rephasing, and
-            absorptive spectra.
+            Complex 2D response matrices for the requested components. The
+            absorptive spectrum is returned only when both components are
+            requested.
         """
         if n_jobs is None:
             n_jobs = self.n_jobs
         if self.N_k is None:
             raise RuntimeError("Call feed_model() before generate_2D_spectra().")
 
-        
+        spectrum_components = self._normalize_spectrum_components(
+            spectrum_components
+        )
+
         self._resolvent_cache.clear()
         self._dense_resolvent_cache.clear()
         self._dense_tau2_cache.clear()
@@ -956,21 +1103,41 @@ class LiouvilleSpectroscopySolver:
         else:
             integration_factor = 1.0
 
-        S3_reph = np.zeros((n_w, n_w), dtype=np.complex128)
-        S3_unreph = np.zeros((n_w, n_w), dtype=np.complex128)
-
         if parallel_backend is None:
             parallel_backend = self.parallel_backend
         n_jobs_eff = self._effective_n_jobs(n_jobs)
-        blocks = self._make_w3_blocks(n_w, n_jobs_eff, block_size)
 
         if verbose:
             print(
                 f"Starting 2D scan on a {n_w}x{n_w} frequency grid "
                 f"with Liouville={self._active_backend}, "
-                f"parallel={parallel_backend}, n_jobs={n_jobs_eff}, "
-                f"block_size={len(blocks[0]) if blocks else 0}."
+                f"components={spectrum_components}, "
+                f"parallel={parallel_backend}, n_jobs={n_jobs_eff}."
             )
+
+        if self._active_backend == "dense" and (
+            parallel_backend in {"serial", None} or n_jobs_eff == 1
+        ):
+            with self._parallel_context(blas_threads):
+                return self._generate_2D_spectra_dense(
+                    w_list, tau2, integration_factor, spectrum_components
+                )
+
+        S3_reph = (
+            np.zeros((n_w, n_w), dtype=np.complex128)
+            if self._wants_rephasing(spectrum_components)
+            else None
+        )
+        S3_unreph = (
+            np.zeros((n_w, n_w), dtype=np.complex128)
+            if self._wants_unrephasing(spectrum_components)
+            else None
+        )
+
+        blocks = self._make_w3_blocks(n_w, n_jobs_eff, block_size)
+
+        if verbose:
+            print(f"block_size={len(blocks[0]) if blocks else 0}.")
 
         with self._parallel_context(blas_threads):
             results = self._run_w3_blocks(
@@ -980,20 +1147,18 @@ class LiouvilleSpectroscopySolver:
                 integration_factor,
                 parallel_backend,
                 n_jobs_eff,
+                spectrum_components,
             )
-        
 
         for i, col_reph, col_unreph in results:
-            S3_reph[:, i] = col_reph
-            S3_unreph[:, i] = col_unreph
-            
-       
-                
-        return {
-            "rephasing": S3_reph,
-            "unrephasing": S3_unreph,
-            "absorptive": S3_reph + S3_unreph,
-        }
+            if S3_reph is not None:
+                S3_reph[:, i] = col_reph
+            if S3_unreph is not None:
+                S3_unreph[:, i] = col_unreph
+
+        return self._format_spectra_result(
+            S3_reph, S3_unreph, spectrum_components
+        )
 
     def benchmark_2D_parallel_backends(
         self,

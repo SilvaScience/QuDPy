@@ -113,7 +113,7 @@ def build_holstein_lindblad_ops(params, N_k=1):
 
 
 
-TOTAL_KPOINTS = 50
+TOTAL_KPOINTS = 1
 k_array = np.linspace(-np.pi, np.pi, TOTAL_KPOINTS)
 
 holstein_params = {

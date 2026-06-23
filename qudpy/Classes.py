@@ -125,11 +125,9 @@ class System:
             print('scan id not provided for two tunable delays')
             return None
 
-        if parallel:
-            from qutip import parallel as pp
 
         rho = self.rho  # taking the initial state from the system class
-
+        # ncores = int(os.environ.get("SLURM_CPUS_PER_TASK", 1)) if parallel else 1
         # go through interactions and time delays, if time delays are zero move to next iteration
         # The loop only goes on till the first scan-able delay is encountered.
         for i in range(scan_id[0]):
@@ -138,8 +136,8 @@ class System:
             delta_t = time_delays[i]
             if delta_t > 0:
                 coherence_time = np.linspace(0, delta_t, int(delta_t*r))
-                results = mesolve(self.H, rho, coherence_time, self.c_ops, [])
-                rho = results.states[-1]  # keeping only the last state
+                results = mesolve(self.H, rho, coherence_time, self.c_ops, [],options = {"store_states": False, "store_final_state": True})
+                rho = results.final_state  # keeping only the last state
 
         # At this point all the pulses and delays have been applied that do not need scanning
         # now applying the pulse and the delay that has to be scanned --> therefore saving all states.
@@ -177,7 +175,6 @@ class System:
             for s in range(len(states)):
                     for h in range(len(states[s])):
                         states[s][h] = self.apply_pulse(states[s][h], diagram[i])
-            print(diagram[i])
             delta_t = time_delays[i]
             i =  i+1
             if delta_t > 0:

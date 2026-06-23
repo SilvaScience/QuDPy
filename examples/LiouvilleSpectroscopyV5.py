@@ -749,26 +749,71 @@ class LiouvilleSpectroscopySolver:
 
         return rhs
 
-    def _scan_dense_component_from_rhs(self, G_list, rhs, integration_factor):
-        """Apply every w3 resolvent to precomputed RHS vectors."""
+    def _scan_dense_w3_block(self, block, G_list, rhs, integration_factor):
+        """Apply one block of precomputed w3 resolvents to immutable RHS data."""
         n_w = len(G_list)
-        spectrum = np.empty((n_w, n_w), dtype=np.complex128)
         trace_vec = self._trace_vec_dense[np.newaxis, np.newaxis, ...]
         output_op = self._JL_out_dense[np.newaxis, np.newaxis, ...]
+        columns = []
 
-        for i, G3 in enumerate(G_list):
+        for i in block:
+            G3 = G_list[i]
             paths = G3[np.newaxis, np.newaxis, ...] @ rhs
             traces = (trace_vec @ (output_op @ paths)).reshape(3, n_w, self.N_k)
-            spectrum[:, i] = (
+            column = (
                 -1j
                 * np.sum(traces[0] + traces[1] - traces[2], axis=1)
                 * integration_factor
             )
+            columns.append((i, column))
+
+        return columns
+
+    def _scan_dense_component_from_rhs(
+        self,
+        G_list,
+        rhs,
+        integration_factor,
+        parallel_backend="serial",
+        n_jobs=1,
+        block_size=None,
+    ):
+        """Apply every w3 resolvent to precomputed RHS vectors."""
+        n_w = len(G_list)
+        spectrum = np.empty((n_w, n_w), dtype=np.complex128)
+        blocks = self._make_w3_blocks(n_w, n_jobs, block_size)
+
+        if parallel_backend == "threading" and n_jobs > 1:
+            nested = Parallel(n_jobs=n_jobs, backend="threading")(
+                delayed(self._scan_dense_w3_block)(
+                    block, G_list, rhs, integration_factor
+                )
+                for block in blocks
+            )
+            columns = [item for block_result in nested for item in block_result]
+        else:
+            columns = [
+                item
+                for block in blocks
+                for item in self._scan_dense_w3_block(
+                    block, G_list, rhs, integration_factor
+                )
+            ]
+
+        for i, column in columns:
+            spectrum[:, i] = column
 
         return spectrum
 
     def _generate_2D_spectra_dense(
-        self, w_list, tau2, integration_factor, spectrum_components
+        self,
+        w_list,
+        tau2,
+        integration_factor,
+        spectrum_components,
+        parallel_backend="serial",
+        n_jobs=1,
+        block_size=None,
     ):
         """Optimized dense 2D scan that reuses all w1-dependent RHS vectors."""
         G_list = [self._get_dense_resolvent(w) for w in w_list]
@@ -780,13 +825,23 @@ class LiouvilleSpectroscopySolver:
         if self._wants_rephasing(spectrum_components):
             rhs_reph = self._precompute_rephasing_dense_rhs(w_list, G_list, G2)
             S3_reph = self._scan_dense_component_from_rhs(
-                G_list, rhs_reph, integration_factor
+                G_list,
+                rhs_reph,
+                integration_factor,
+                parallel_backend,
+                n_jobs,
+                block_size,
             )
 
         if self._wants_unrephasing(spectrum_components):
             rhs_unreph = self._precompute_unrephasing_dense_rhs(w_list, G_list, G2)
             S3_unreph = self._scan_dense_component_from_rhs(
-                G_list, rhs_unreph, integration_factor
+                G_list,
+                rhs_unreph,
+                integration_factor,
+                parallel_backend,
+                n_jobs,
+                block_size,
             )
 
         return self._format_spectra_result(
@@ -1116,11 +1171,17 @@ class LiouvilleSpectroscopySolver:
             )
 
         if self._active_backend == "dense" and (
-            parallel_backend in {"serial", None} or n_jobs_eff == 1
+            parallel_backend in {"serial", "threading", None} or n_jobs_eff == 1
         ):
             with self._parallel_context(blas_threads):
                 return self._generate_2D_spectra_dense(
-                    w_list, tau2, integration_factor, spectrum_components
+                    w_list,
+                    tau2,
+                    integration_factor,
+                    spectrum_components,
+                    parallel_backend,
+                    n_jobs_eff,
+                    block_size,
                 )
 
         S3_reph = (
@@ -1175,9 +1236,9 @@ class LiouvilleSpectroscopySolver:
         """
         Benchmark omega-loop parallel backends for generate_2D_spectra().
 
-        The first serial run is used as the numerical reference. The returned
-        list contains elapsed time, speedup, and max absolute difference from
-        that reference for each backend/job-count pair.
+        A short unmeasured run warms up numerical libraries. The first serial
+        configuration is then used as the numerical reference. Timings report
+        the median of all repetitions.
         """
         n_w = len(w_list)
         d = self.dim
@@ -1218,6 +1279,19 @@ class LiouvilleSpectroscopySolver:
         if max_w_points is not None:
             w_bench = w_bench[: int(max_w_points)]
 
+        warmup_w = w_bench[: min(8, len(w_bench))]
+        if len(warmup_w):
+            self.generate_2D_spectra(
+                warmup_w,
+                tau2,
+                k_array=k_array,
+                n_jobs=1,
+                parallel_backend="serial",
+                block_size=block_size,
+                blas_threads=blas_threads,
+                verbose=False,
+            )
+
         reference = None
         reference_time = None
         rows = []
@@ -1225,8 +1299,8 @@ class LiouvilleSpectroscopySolver:
         for backend in backends:
             jobs_to_run = (1,) if backend == "serial" else n_jobs_values
             for n_jobs in jobs_to_run:
-                best_elapsed = np.inf
-                best_spectra = None
+                elapsed_values = []
+                spectra = None
 
                 for _ in range(max(1, int(repeats))):
                     t0 = time.perf_counter()
@@ -1241,32 +1315,40 @@ class LiouvilleSpectroscopySolver:
                         verbose=False,
                     )
                     elapsed = time.perf_counter() - t0
-                    if elapsed < best_elapsed:
-                        best_elapsed = elapsed
-                        best_spectra = spectra
+                    elapsed_values.append(elapsed)
 
                 if reference is None:
-                    reference = best_spectra
-                    reference_time = best_elapsed
+                    reference = spectra
+                    reference_time = float(np.median(elapsed_values))
 
                 max_abs_diff = float(
                     np.max(
-                        np.abs(best_spectra["absorptive"] - reference["absorptive"])
+                        np.abs(spectra["absorptive"] - reference["absorptive"])
                     )
                 )
-                speedup = reference_time / best_elapsed if best_elapsed > 0 else np.inf
+                median_elapsed = float(np.median(elapsed_values))
+                min_elapsed = float(np.min(elapsed_values))
+                max_elapsed = float(np.max(elapsed_values))
+                speedup = (
+                    reference_time / median_elapsed
+                    if median_elapsed > 0
+                    else np.inf
+                )
                 row = {
                     "backend": backend,
                     "n_jobs": self._effective_n_jobs(n_jobs),
                     "block_size": block_size,
-                    "elapsed_s": best_elapsed,
+                    "elapsed_s": median_elapsed,
+                    "elapsed_min_s": min_elapsed,
+                    "elapsed_max_s": max_elapsed,
                     "speedup_vs_serial": speedup,
                     "max_abs_diff": max_abs_diff,
                 }
                 rows.append(row)
                 print(
                     f"{backend:>15} n_jobs={row['n_jobs']:<3} "
-                    f"time={best_elapsed:8.3f}s "
+                    f"median={median_elapsed:8.3f}s "
+                    f"range=[{min_elapsed:.3f}, {max_elapsed:.3f}]s "
                     f"speedup={speedup:6.2f}x "
                     f"max_abs_diff={max_abs_diff:.3e}"
                 )

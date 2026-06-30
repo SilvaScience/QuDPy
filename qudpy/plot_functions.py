@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import TwoSlopeNorm
 from matplotlib.colors import Normalize
 import matplotlib.cm as cm
-
+from scipy.optimize import curve_fit
 
 def multiplot(data=None, scan_range=None, labels=None, title_list=None, scale='linear', color_map='PuOr',
               interpolation='spline36', center_scale=True):
@@ -270,7 +270,7 @@ def silva_plot(spectra_list=None,x_val=None,y_val=None, labels=None, title_list=
     elif plot_quadrant == '4':
         spectra_list_ = [x[:x_i, y_i:] for x in spectra_list_]
         scan_range = [0, np.max(x_val), np.min(y_val), 0]
-
+        print(scan_range)
 
     elif plot_quadrant == 'Zoom':
         index = coor(x_val,y_val,Zoom_coor)
@@ -368,7 +368,7 @@ def silva_plot(spectra_list=None,x_val=None,y_val=None, labels=None, title_list=
 
     return
 
-def silva_plot_contourf(
+def plot_contourf_multi_spectra(
     spectra_list=None, x_val=None, y_val=None,
     labels=None, title_list=None,
     scale='linear', color_map='jet',
@@ -542,7 +542,439 @@ def silva_plot_contourf(
         ticks = np.linspace(vmin, vmax, 5)
         cbar.set_ticks(ticks)
         cbar.ax.set_yticklabels([f"{t:.2f}" for t in ticks])
-
+    plt.rcParams.update({
+    'font.family': 'sans-serif',
+    'font.sans-serif': ['Arial'],
+    'font.size': 12
+    })
     fig.tight_layout()
+    plt.show()
+    return 
+
+
+def plot_contourf_multi_spectra_norm(
+    spectra_list=None, x_val=None, y_val=None,
+    labels=None, title_list=None,
+    scale='linear', color_map='jet',
+    center_scale=False, plot_sum=True,
+    plot_quadrant='All', invert_y=True,
+    diagonals=[True, True],
+    Zoom_coor=None,
+    nlevels=12,
+    save_file = False,
+    title_save = None
+):
+    if spectra_list is None:
+        print('Nothing to plot')
+        return
+
+    spectra_list_ = spectra_list[:]
+    x_val = np.asarray(x_val)
+    y_val = np.asarray(y_val)
+
+    if len(x_val) % 2 == 0:
+        x_val = x_val[1:, 1:]
+        for k in range(len(spectra_list_)):
+            spectra_list_[k] = spectra_list_[k][1:, :]
+
+    if len(y_val) % 2 == 0:
+        y_val = y_val[1:, 1:]
+        for k in range(len(spectra_list_)):
+            spectra_list_[k] = spectra_list_[k][:, 1:]
+
+    if invert_y:
+        spectra_list_ = [np.flip(s, axis=0) for s in spectra_list_]
+        y_val = -y_val[::-1]
+
+    x_i = int(np.where(x_val == 0)[1][0])
+    y_i = int(np.where(y_val == 0)[0][0])
+    Y_i = [y_val[a][0] for a in range(len(y_val))]
+
+    if title_list is None:
+        title_list = [str(i + 1) for i in range(len(spectra_list_))]
+
+    if plot_quadrant == '1':
+        X = x_val[0][x_i:]
+        Y = Y_i[y_i:]
+        spectra_list_ = [x[x_i:, y_i:] for x in spectra_list_]
+        scan_range = [0, np.max(x_val), 0, np.max(y_val)]
+    elif plot_quadrant == '2':
+        X = x_val[0][:x_i+1]
+        Y = Y_i[y_i:]
+        spectra_list_ = [x[x_i:, :y_i+1] for x in spectra_list_]
+        scan_range = [np.min(x_val), 0, 0, np.max(y_val)]
+    elif plot_quadrant == '3':
+        X = x_val[0][:x_i+1]
+        Y = Y_i[:y_i+1]
+        spectra_list_ = [x[:x_i+1, :y_i+1] for x in spectra_list_]
+        scan_range = [np.min(x_val), 0, np.min(y_val), 0]
+    elif plot_quadrant == '4':
+        X = x_val[0][x_i:]
+        Y = Y_i[:y_i+1]
+        spectra_list_ = [x[:x_i+1, y_i:] for x in spectra_list_]
+        scan_range = [0, np.max(x_val), np.min(y_val), 0]
+    elif plot_quadrant == 'Zoom':
+        index = coor(x_val, y_val, Zoom_coor)
+        X = x_val[0][index[0]:index[1]+1]
+        Y = Y_i[index[2]:index[3]+1]
+        spectra_list_ = [x[index[2]:index[3]+1, index[0]:index[1]+1] for x in spectra_list_]
+        scan_range = [x_val[0][index[0]], x_val[0][index[1]], y_val[index[2]][0], y_val[index[3]][0]]
+    elif plot_quadrant == 'All':
+        scan_range = [np.min(x_val), np.max(x_val), np.min(y_val), np.max(y_val)]
+        X = x_val
+        Y = y_val
+
+    # ── Build data list ───────────────────────────────────────────────
+    data = []
+    for s in spectra_list_:
+        data.extend([np.real(s), np.imag(s), np.abs(s)])
+
+    if plot_sum:
+        ssum = np.sum(spectra_list_, axis=0)
+        data.extend([ssum.real, ssum.imag, np.abs(ssum)])
+        title_list = list(title_list) + ['Total']
+
+    if scale == 'log':
+        data = [np.log10(np.abs(d) + 1e-12) for d in data]
+
+    # ── Normalize each triplet independently ─────────────────────────
+    #   real / imag  →  divided by their own max_abs  →  [-1, 1]
+    #   abs          →  divided by its own max        →  [ 0, 1]
+    norm_data = []
+    for i, d in enumerate(data):
+        max_abs = np.max(np.abs(d)) + 1e-12
+        norm_data.append(d / max_abs)
+    data = norm_data
+
+    # ── Layout ───────────────────────────────────────────────────────
+    num_plots = len(data)
+    rows = int(np.ceil(num_plots / 3))
+
+    fig, axes = plt.subplots(
+        rows, 4,
+        figsize=(5 * 4, 5 * rows),
+        gridspec_kw={"width_ratios": [1, 1, 1, 0.06]}
+    )
+    axes = np.atleast_2d(axes)
+    titles = ['real', 'imag', 'abs']
+
+    for g in range(rows):
+        group_data = data[3*g:3*g+3]   # [real, imag, abs]
+        group_axes = axes[g, :3]
+        cax        = axes[g, 3]
+
+        div_cmap = 'RdBu_r'  # or 'seismic', 'bwr' — 0 is always white
+        
+        for j, ax in enumerate(group_axes):
+            Z = group_data[j]
+        
+            if j == 2:  # abs → [0, 1]: white (0) → red (1), upper half of diverging map
+                norm_plot = Normalize(vmin=-1, vmax=1)   # ← trick: map [0,1] data onto [-1,1] norm
+                # remap abs to [0,1] range in the colormap by keeping vmin=-1 but data starts at 0
+                # this means abs=0 → white center, abs=1 → full red
+                # norm_plot = Normalize(vmin=0, vmax=1)
+                # use only upper half: truncate the colormap
+                from matplotlib.colors import LinearSegmentedColormap
+                cmap_abs = LinearSegmentedColormap.from_list(
+                    'RdBu_pos', plt.cm.RdBu_r(np.linspace(0, 1.0, 256))
+                )
+                cmap_use = cmap_abs
+            else:       # real/imag → [-1, 1]: full diverging map
+                norm_plot = TwoSlopeNorm(vmin=-1, vcenter=0, vmax=1) \
+                            if center_scale else Normalize(vmin=-1, vmax=1)
+                cmap_use = div_cmap
+        
+            ax.contourf(X, Y, Z, levels=nlevels, cmap=cmap_use, norm=norm_plot)
+            ax.contour( X, Y, Z, levels=nlevels, colors='k', linewidths=0.4, alpha=0.7)
+
+            if diagonals[0]:
+                ax.plot([scan_range[0], scan_range[1]],
+                        [scan_range[3], scan_range[2]], '--k', lw=0.5)
+            if diagonals[1]:
+                ax.plot([scan_range[0], scan_range[1]],
+                        [scan_range[2], scan_range[3]], '--k', lw=0.5)
+
+            ax.set_title(f"{title_list[g]} {titles[j]}")
+            if labels:
+                ax.set_xlabel(labels[0])
+                ax.set_ylabel(labels[1])
+            ax.set_aspect('equal')
+            ax.tick_params(direction='in', length=6, width=2)
+        # ── Single colorbar per row: always -1 to 1 ──────────────────
+        norm_cbar = TwoSlopeNorm(vmin=-1, vcenter=0, vmax=1) \
+                    if center_scale else Normalize(vmin=-1, vmax=1)
+        # norm_cbar= Normalize(vmin=-1, vmax=1)
+        sm = cm.ScalarMappable(norm=norm_cbar, cmap=div_cmap)
+        sm.set_array([])
+        cbar = fig.colorbar(sm, cax=cax)
+        cbar.set_ticks([-1,-0.5,0, 0.5, 1])
+        cbar.ax.set_yticklabels(['-1','-0.5','0.0', '0.5', '1.0'])
+        
+    plt.rcParams.update({
+        'font.family': 'sans-serif',
+        'font.sans-serif': ['Arial'],
+        'font.size': 12
+    })
+    plt.tick_params(direction='in')
+    fig.tight_layout()
+    if save_file:
+        plt.savefig(f"{title_save}.pdf")
+        
+    plt.show()
+    return 
+
+
+def antidiagonal_cut(spectra_list,x_val,y_val,center,length,inter='Lorentzian'):
+    spectra_list_ = spectra_list.copy()
+    
+    Zoom_coor = [center[0]-length,center[0]+length,center[1]-length,center[1]+length]
+
+    index = coor(x_val,y_val,Zoom_coor)
+
+    X = x_val[0][index[0]:index[1]+1]
+    Y_i = []
+    for a in range(len(y_val)):
+        Y_i.append(y_val[a][0])
+
+    Y = Y_i[index[2]:index[3]+1]
+    if len(spectra_list) == len(x_val):
+        spectra_list_ = spectra_list_[index[2]:index[3]+1,index[0]:index[1]+1]
+
+        data = [spectra_list_]
+            
+        anti_cut = []
+    else:
+        spectra_list_ = [x[index[2]:index[3]+1,index[0]:index[1]+1] for x in spectra_list_]
+
+        data = spectra_list_
+        
+        anti_cut = []
+    
+    if inter == 'Lorentzian':
+        def inter_func(x, A, x0, gamma):
+            return A * gamma**2 / ((x - x0)**2 + gamma**2)
+    elif inter == 'Gaussian':
+        def inter_func(x, A, x0, sigma):
+            return A * np.exp(-(x - x0)**2 / (2 * sigma**2))
+
+    if center[0]*center[1]>0:
+        for c in range(len(data)):
+            anti_cut_ = []
+            for a in range(len(X)):
+                    anti_cut_.append(data[c][a][a])
+            anti_cut.append(anti_cut_)
+    else:
+         for c in range(len(data)):
+            anti_cut_ = []
+            for a in range(len(X)):
+                anti_cut_.append(data[c][len(data[c])-a-1][a])
+            anti_cut.append(anti_cut_)
+    data = []
+    for s in anti_cut:
+            data.extend([np.abs(s)])
+    
+    gamma = []
+    for a in range(len(data)):
+        x0_guess = X[np.argmax(data[a])]
+        A_guess = max(data[a])
+        gamma_guess = (max(X) - min(X)) /10  # reasonable width guess
+        
+        p0 = [A_guess, x0_guess, gamma_guess]
+        params, _ = curve_fit(inter_func, X, data[a], p0=p0)
+        A_fit, x0_fit, gamma_fit = params
+        x_fit = np.linspace(min(X), max(X), 500)
+        y_fit = inter_func(x_fit, A_fit, x0_fit, gamma_fit)
+        
+        # Plot
+        plt.scatter(X, data[a]/np.max(data[a]), label="Data")
+        plt.plot(x_fit, y_fit/np.max(y_fit), color='red', label="fit")
+        plt.legend()
+        plt.rcParams.update({
+            'font.family': 'sans-serif',
+            'font.sans-serif': ['Arial'],
+            'font.size': 12
+        })
+        plt.show()
+        gamma.append(gamma_fit)
+    return x_fit,y_fit,X,data,gamma
+
+
+
+
+
+def plot_contourf_multi_spectra_norm_b(
+    spectra_list=None, x_val=None, y_val=None,
+    labels=None, title_list=None,
+    scale='linear', color_map='jet',
+    center_scale=False, plot_sum=True,
+    plot_quadrant='All', invert_y=True,
+    diagonals=[True, True],
+    Zoom_coor=None,
+    nlevels=12,
+    save_file = False,
+    title_save = None
+):
+    if spectra_list is None:
+        print('Nothing to plot')
+        return
+
+    spectra_list_ = spectra_list[:]
+    x_val = np.asarray(x_val)
+    y_val = np.asarray(y_val)
+
+    if len(x_val) % 2 == 0:
+        x_val = x_val[1:, 1:]
+        for k in range(len(spectra_list_)):
+            spectra_list_[k] = spectra_list_[k][1:, :]
+
+    if len(y_val) % 2 == 0:
+        y_val = y_val[1:, 1:]
+        for k in range(len(spectra_list_)):
+            spectra_list_[k] = spectra_list_[k][:, 1:]
+
+    if invert_y:
+        spectra_list_ = [np.flip(s, axis=0) for s in spectra_list_]
+        y_val = -y_val[::-1]
+
+    x_i = int(np.where(x_val == 0)[1][0])
+    y_i = int(np.where(y_val == 0)[0][0])
+    Y_i = [y_val[a][0] for a in range(len(y_val))]
+
+    if title_list is None:
+        title_list = [str(i + 1) for i in range(len(spectra_list_))]
+
+    if plot_quadrant == '1':
+        X = x_val[0][x_i:]
+        Y = Y_i[y_i:]
+        spectra_list_ = [x[x_i:, y_i:] for x in spectra_list_]
+        scan_range = [0, np.max(x_val), 0, np.max(y_val)]
+    elif plot_quadrant == '2':
+        X = x_val[0][:x_i+1]
+        Y = Y_i[y_i:]
+        spectra_list_ = [x[x_i:, :y_i+1] for x in spectra_list_]
+        scan_range = [np.min(x_val), 0, 0, np.max(y_val)]
+    elif plot_quadrant == '3':
+        X = x_val[0][:x_i+1]
+        Y = Y_i[:y_i+1]
+        spectra_list_ = [x[:x_i+1, :y_i+1] for x in spectra_list_]
+        scan_range = [np.min(x_val), 0, np.min(y_val), 0]
+    elif plot_quadrant == '4':
+        X = x_val[0][x_i:]
+        Y = Y_i[:y_i+1]
+        spectra_list_ = [x[:x_i+1, y_i:] for x in spectra_list_]
+        scan_range = [0, np.max(x_val), np.min(y_val), 0]
+    elif plot_quadrant == 'Zoom':
+        index = coor(x_val, y_val, Zoom_coor)
+        X = x_val[0][index[0]:index[1]+1]
+        Y = Y_i[index[2]:index[3]+1]
+        spectra_list_ = [x[index[2]:index[3]+1, index[0]:index[1]+1] for x in spectra_list_]
+        scan_range = [x_val[0][index[0]], x_val[0][index[1]], y_val[index[2]][0], y_val[index[3]][0]]
+    elif plot_quadrant == 'All':
+        scan_range = [np.min(x_val), np.max(x_val), np.min(y_val), np.max(y_val)]
+        X = x_val
+        Y = y_val
+
+    # ── Build data list ───────────────────────────────────────────────
+    data = []
+    for s in spectra_list_:
+        data.extend([np.real(s), np.imag(s), np.abs(s)])
+
+    if plot_sum:
+        ssum = np.sum(spectra_list_, axis=0)
+        data.extend([ssum.real, ssum.imag, np.abs(ssum)])
+        title_list = list(title_list) + ['Total']
+
+    if scale == 'log':
+        data = [np.log10(np.abs(d) + 1e-12) for d in data]
+
+    # ── Normalize each triplet independently ─────────────────────────
+    #   real / imag  →  divided by their own max_abs  →  [-1, 1]
+    #   abs          →  divided by its own max        →  [ 0, 1]
+    norm_data = []
+    for i, d in enumerate(data):
+        max_abs = np.max(np.abs(d)) + 1e-12
+        norm_data.append(d / max_abs)
+    data = norm_data
+
+    # ── Layout ───────────────────────────────────────────────────────
+    num_plots = len(data)
+    rows = int(np.ceil(num_plots / 3))
+
+    fig, axes = plt.subplots(
+        rows, 4,
+        figsize=(5 * 4, 5 * rows),
+        gridspec_kw={"width_ratios": [1, 1, 1, 0.06]}
+    )
+    axes = np.atleast_2d(axes)
+    titles = ['real', 'imag', 'abs']
+
+    for g in range(rows):
+        group_data = data[3*g:3*g+3]   # [real, imag, abs]
+        group_axes = axes[g, :3]
+        cax        = axes[g, 3]
+
+        div_cmap = 'Spectral_r'  # or 'seismic', 'bwr' — 0 is always white
+        
+        for j, ax in enumerate(group_axes):
+            Z = group_data[j]
+        
+            if j == 2:  # abs → [0, 1]: white (0) → red (1), upper half of diverging map
+                norm_plot = Normalize(vmin=-1, vmax=1)   # ← trick: map [0,1] data onto [-1,1] norm
+                # remap abs to [0,1] range in the colormap by keeping vmin=-1 but data starts at 0
+                # this means abs=0 → white center, abs=1 → full red
+                norm_plot = Normalize(vmin=0, vmax=1)
+                # use only upper half: truncate the colormap
+                from matplotlib.colors import LinearSegmentedColormap
+                cmap_abs = LinearSegmentedColormap.from_list(
+                    'Spectral_pos', plt.cm.Spectral_r(np.linspace(0, 1.0, 256))
+                )
+                cmap_use = cmap_abs
+            else:       # real/imag → [-1, 1]: full diverging map
+                norm_plot = TwoSlopeNorm(vmin=-1, vcenter=0, vmax=1) \
+                            if center_scale else Normalize(vmin=-1, vmax=1)
+                cmap_use = div_cmap
+        
+            ax.contourf(X, Y, Z, levels=nlevels, cmap=cmap_use, norm=norm_plot)
+            ax.contour( X, Y, Z, levels=nlevels, colors='k', linewidths=0.4, alpha=0.7)
+
+            if diagonals[0]:
+                ax.plot([scan_range[0], scan_range[1]],
+                        [scan_range[3], scan_range[2]], '--k', lw=0.5)
+            if diagonals[1]:
+                ax.plot([scan_range[0], scan_range[1]],
+                        [scan_range[2], scan_range[3]], '--k', lw=0.5)
+
+            ax.set_title(f"{title_list[g]} {titles[j]}")
+            if labels:
+                ax.set_xlabel(labels[0])
+                ax.set_ylabel(labels[1])
+            ax.set_aspect('equal')
+            ax.tick_params(
+                direction='in',
+                length=6,
+                width=2,
+                top=True,
+                right=True
+            )
+
+        # ── Single colorbar per row: always -1 to 1 ──────────────────
+        norm_cbar = TwoSlopeNorm(vmin=-1, vcenter=0, vmax=1) \
+                    if center_scale else Normalize(vmin=-1, vmax=1)
+        norm_cbar= Normalize(vmin=0, vmax=1)
+        sm = cm.ScalarMappable(norm=norm_cbar, cmap=div_cmap)
+        sm.set_array([])
+        cbar = fig.colorbar(sm, cax=cax)
+        
+        cbar.set_ticks([0, 0.5, 1])
+        cbar.ax.set_yticklabels(['0.0', '0.5', '1.0'])
+    
+    plt.rcParams.update({
+        'font.family': 'sans-serif',
+        'font.sans-serif': ['Arial'],
+        'font.size': 12
+    })
+    fig.tight_layout()
+    if save_file:
+        plt.savefig(f"{title_save}.pdf")
     plt.show()
     return 

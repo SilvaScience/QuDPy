@@ -125,11 +125,9 @@ class System:
             print('scan id not provided for two tunable delays')
             return None
 
-        if parallel:
-            from qutip import parallel as pp
 
         rho = self.rho  # taking the initial state from the system class
-
+        # ncores = int(os.environ.get("SLURM_CPUS_PER_TASK", 1)) if parallel else 1
         # go through interactions and time delays, if time delays are zero move to next iteration
         # The loop only goes on till the first scan-able delay is encountered.
         for i in range(scan_id[0]):
@@ -138,8 +136,8 @@ class System:
             delta_t = time_delays[i]
             if delta_t > 0:
                 coherence_time = np.linspace(0, delta_t, int(delta_t*r))
-                results = mesolve(self.H, rho, coherence_time, self.c_ops, [])
-                rho = results.states[-1]  # keeping only the last state
+                results = mesolve(self.H, rho, coherence_time, self.c_ops, [],options = {"store_states": False, "store_final_state": True})
+                rho = results.final_state  # keeping only the last state
 
         # At this point all the pulses and delays have been applied that do not need scanning
         # now applying the pulse and the delay that has to be scanned --> therefore saving all states.
@@ -162,8 +160,8 @@ class System:
 
         
         # Now at this point only last interaction and last scan-able delay is left.
-        print('First scan done, starting second scan. Remaining time = First Scan Time x number of steps in second scan'
-              + '/number of processors')
+        # print('First scan done, starting second scan. Remaining time = First Scan Time x number of steps in second scan'
+              # + '/number of processors')
         states = [self.apply_pulse(state, diagram[scan_id[1]]) for state in states]
         delta_t = time_delays[scan_id[1]]
         t_list = np.linspace(0, delta_t, int(delta_t*r))
@@ -176,8 +174,7 @@ class System:
         while i < len(diagram):  
             for s in range(len(states)):
                     for h in range(len(states[s])):
-                        states[s][h] = self.apply_pulse(states[s][h], diagram[3])
-
+                        states[s][h] = self.apply_pulse(states[s][h], diagram[i])
             delta_t = time_delays[i]
             i =  i+1
             if delta_t > 0:
@@ -190,10 +187,10 @@ class System:
         final_states = states
 
         dipole = np.array([expect(self.u, final_states[x][:]) for x in range(len(final_states))])
-
-        print('second scan done')
-        return final_states, np.linspace(0, time_delays[scan_id[0]], int(time_delays[scan_id[0]] * r)), t_list, dipole
-
+        
+        # print('second scan done')
+        
+        return np.linspace(0, time_delays[scan_id[0]], int(time_delays[scan_id[0]] * r)), t_list, dipole
     # some small helper functions to keep the coherence2D function readable
     def apply_pulse(self, rho, x):
         """
@@ -237,9 +234,9 @@ class System:
             print('Input data missing')
             return
 
-        spectra = [np.fft.fftshift(np.fft.fft2(mu)) for mu in dipoles]
+        spectra = [np.fft.fftshift(np.fft.ifft2(mu)) for mu in dipoles]
         # note the multiplication with 2pi is required because fft works with freq and qutip with omega
-       
+        
         freq1 = np.fft.fftshift(np.fft.fftfreq(np.shape(spectra[0])[1], 1 / resolution)) * 2 * np.pi
         freq2 = np.fft.fftshift(np.fft.fftfreq(np.shape(spectra[0])[0], 1 / resolution)) * 2 * np.pi   
         extent = [min(freq1), max(freq1), min(freq2), max(freq2)]
@@ -276,7 +273,7 @@ class System:
         plt.ylabel('Dipole')
         plt.title('Expectation Values for linear response')
         plt.show()
-
+    
         spec = np.fft.fftshift(np.fft.fft(dipole))
 
         freq = np.fft.fftshift(np.fft.fftfreq(np.shape(spec)[0], 1 / resolution)) * 2 * np.pi
@@ -324,3 +321,88 @@ class System:
         spectra_list, extent, f1, f2 = self.spectra(np.imag(pop_response))
 
         return pop_response, t1, t2, spectra_list, extent, f1, f2
+    def coherence2d_s(self, time_delays=None, diagram=None, scan_id=None, r=10, parallel=False):
+        """
+        Versión optimizada: reduce llamadas redundantes a mesolve, 
+        elimina bucles anidados innecesarios y pre-calcula tiempos.
+        """
+        if len(time_delays) != len(diagram):
+            print('time delays for each interaction not given')
+            print('number of time delays', len(time_delays), 'number of interactions', len(diagram))
+            return None
+        if len(scan_id) != 2:
+            print('scan id not provided for two tunable delays')
+            return None
+    
+        rho = self.rho
+    
+        # --- PRE-CALCULAR todos los t_lists una sola vez ---
+        # Evita llamar np.linspace repetidamente dentro de bucles
+        t_lists = {}
+        for i, dt in enumerate(time_delays):
+            if dt > 0:
+                t_lists[i] = np.linspace(0, dt, max(2, int(dt * r)))
+    
+        # --- FASE 1: Evolución fija antes del primer scan ---
+        for i in range(scan_id[0]):
+            rho = self.apply_pulse(rho, diagram[i])
+            if time_delays[i] > 0:
+                rho = mesolve(self.H, rho, t_lists[i], self.c_ops, []).states[-1]
+    
+        # --- FASE 2: Primer scan (guarda todos los estados) ---
+        rho = self.apply_pulse(rho, diagram[scan_id[0]])
+        t1 = t_lists.get(scan_id[0], np.array([0.0]))
+        states_t1 = mesolve(self.H, rho, t1, self.c_ops, []).states  # lista de N_t1 estados
+    
+        # --- FASE 3: Interacciones y delays fijos entre los dos scans ---
+        for i in range(scan_id[0] + 1, scan_id[1]):
+            # Aplicar pulso a todos los estados del primer scan
+            states_t1 = [self.apply_pulse(s, diagram[i]) for s in states_t1]
+            if time_delays[i] > 0:
+                # OPTIMIZACIÓN: reusar el mismo t_list para todos los estados
+                t_fixed = t_lists[i]
+                states_t1 = [
+                    mesolve(self.H, s, t_fixed, self.c_ops, []).states[-1]
+                    for s in states_t1
+                ]
+    
+        # --- FASE 4: Segundo scan ---
+        print('Primer scan completo. Iniciando segundo scan...')
+        states_t1 = [self.apply_pulse(s, diagram[scan_id[1]]) for s in states_t1]
+        t2 = t_lists.get(scan_id[1], np.array([0.0]))
+    
+        # Para cada estado en t1, evolucionar sobre t2 completo
+        # OPTIMIZACIÓN: guardamos solo los estados de t2 (no listas de listas)
+        states_2d = [
+            mesolve(self.H, s, t2, self.c_ops, []).states
+            for s in states_t1
+        ]  # shape lógico: [N_t1][N_t2] -> lista de listas de Qobj
+    
+        # --- FASE 5: Interacciones y delays fijos después del segundo scan ---
+        i = scan_id[1] + 1
+        while i < len(diagram):
+            # Aplicar pulso a todos los estados [t1][t2]
+            states_2d = [
+                [self.apply_pulse(state, diagram[i]) for state in traj]
+                for traj in states_2d
+            ]
+            if time_delays[i] > 0:
+                t_fixed = t_lists[i]
+                # Solo guardar el último estado de cada trayectoria
+                states_2d = [
+                    [mesolve(self.H, state, t_fixed, self.c_ops, []).states[-1]
+                     for state in traj]
+                    for traj in states_2d
+                ]
+            i += 1
+    
+        # --- CÁLCULO DEL DIPOLO ---
+        # OPTIMIZACIÓN: pasar lista plana a expect en lugar de iterar con np.array([...])
+        # expect() acepta lista de estados directamente -> más eficiente
+        dipole = np.array([
+            expect(self.u, traj)   # expect sobre lista de estados de t2 de una vez
+            for traj in states_2d
+        ])  # shape: [N_t1, N_t2]
+    
+        print('Segundo scan completo.')
+        return states_2d, t1, t2, dipole

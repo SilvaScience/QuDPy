@@ -1,4 +1,4 @@
-Metadata-Version: 2.1
+Metadata-Version: 2.4
 Name: qudpy
 Version: 1.1.0
 Summary: Nonlinear spectroscopy with quantum dynamics support with Qutip
@@ -33,6 +33,11 @@ Classifier: Programming Language :: Python :: 3 :: Only
 Classifier: Topic :: Scientific/Engineering
 Description-Content-Type: text/markdown
 License-File: LICENSE
+Requires-Dist: qutip
+Requires-Dist: ufss
+Requires-Dist: matplotlib
+Requires-Dist: numpy
+Dynamic: license-file
 
 # QuDPy:
 ## A simple package for nonlinear spectroscopy with quantum dynamics provided by qutip.

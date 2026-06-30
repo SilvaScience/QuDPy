@@ -15,8 +15,10 @@ classifiers = ["Intended Audience :: Science/Research","License :: OSI Approved 
     "Programming Language :: Python :: 3 :: Only", "Topic :: Scientific/Engineering"
 ]
 keywords = ["Nonlinear Spectroscopy", "Quantum Dynamics", "Spectroscopic Response"]
-dependencies = ['qutip', 'ufss', 'matplotlib', 'numpy'
-]
+dependencies = ['qutip', 'ufss', 'matplotlib', 'numpy', 'scipy', 'joblib']
 
 [project.urls]
 Homepage = "https://github.com/sa-shah/QuDPy.git"
+
+[tool.setuptools]
+packages = ["qudpy"]

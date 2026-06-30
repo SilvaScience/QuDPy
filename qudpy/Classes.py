@@ -90,7 +90,7 @@ class System:
                 delta_t = interaction_times[pulse+1]-interaction_times[pulse]
                 results = mesolve(
                     self.H, rho, np.linspace(interaction_times[pulse], interaction_times[pulse+1], delta_t*r),
-                    self.c_ops, [])
+                    c_ops=self.c_ops, e_ops=[])
                 rho = results.states[-1]  # using last state of current simulation as initial state of next one
                 states += results.states
 
@@ -138,7 +138,7 @@ class System:
             delta_t = time_delays[i]
             if delta_t > 0:
                 coherence_time = np.linspace(0, delta_t, int(delta_t*r))
-                results = mesolve(self.H, rho, coherence_time, self.c_ops, [])
+                results = mesolve(self.H, rho, coherence_time, c_ops=self.c_ops, e_ops=[])
                 rho = results.states[-1]  # keeping only the last state
 
         # At this point all the pulses and delays have been applied that do not need scanning
@@ -147,7 +147,7 @@ class System:
         delta_t = time_delays[scan_id[0]]
         
         t_list = np.linspace(0, delta_t, int(delta_t*r))
-        results = mesolve(self. H, rho, t_list, self.c_ops, [])
+        results = mesolve(self.H, rho, t_list, c_ops=self.c_ops, e_ops=[])
         states = results.states
 
         # Applying next set of interactions until a scan-able delay is encountered
@@ -158,7 +158,7 @@ class System:
                 coherence_time = np.linspace(0, delta_t, int(delta_t*r))
                 # evolving each state in the list states and storing only the last state
 
-                states = [mesolve(self.H, state, coherence_time, self.c_ops, []).states[-1] for state in states]
+                states = [mesolve(self.H, state, coherence_time, c_ops=self.c_ops, e_ops=[]).states[-1] for state in states]
 
         
         # Now at this point only last interaction and last scan-able delay is left.
@@ -169,7 +169,7 @@ class System:
         t_list = np.linspace(0, delta_t, int(delta_t*r))
         final_states = []
 
-        states = [mesolve(self.H, state, t_list, self.c_ops, []).states for state in states]
+        states = [mesolve(self.H, state, t_list, c_ops=self.c_ops, e_ops=[]).states for state in states]
         
         i = scan_id[1]+1
 
@@ -184,7 +184,7 @@ class System:
                 coherence_time = np.linspace(0, delta_t, int(delta_t*r))
                 for s in range(len(states)):
                         for h in range(len(states[s])):
-                            states[s][h] = mesolve(self.H, states[s][h], coherence_time, self.c_ops, []).states[-1]
+                            states[s][h] = mesolve(self.H, states[s][h], coherence_time, c_ops=self.c_ops, e_ops=[]).states[-1]
 
 
         final_states = states
@@ -220,9 +220,9 @@ class System:
         :return: list of states or state
         """
         if only_last_state:
-            return mesolve(self.H, rho, self.tlist, self.c_ops, []).states[-1]
+            return mesolve(self.H, rho, self.tlist, c_ops=self.c_ops, e_ops=[]).states[-1]
         else:
-            return mesolve(self.H, rho, self.tlist, self.c_ops, []).states
+            return mesolve(self.H, rho, self.tlist, c_ops=self.c_ops, e_ops=[]).states
 
     # some common plotting functions
 
@@ -266,7 +266,7 @@ class System:
         else:
             rho = self.rho * self.a
             # linear response is created by 'Bu' action on rho initial, alternatively we can apply
-        dipole = mesolve(self.H, rho, t_list, self.c_ops, [self.u]).expect[0]
+        dipole = mesolve(self.H, rho, t_list, c_ops=self.c_ops, e_ops=[self.u]).expect[0]
 
         plt.figure(figsize=(16, 6))
         plt.plot(t_list, np.imag(dipole))

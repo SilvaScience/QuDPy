@@ -1,5 +1,9 @@
 # qudpy
 
+# qudpy
+
+**Current version: 1.1.0**
+
 `qudpy` is a small Python toolkit, built on top of [QuTiP](https://qutip.org/), for simulating quantum dynamics and computing linear and 2D (nonlinear) spectra of model systems via double-sided Feynman diagrams. It bundles:
 
 - **`qudpy.classes.System`** — defines the physical model (Hamiltonian, density matrix, collapse/dipole operators) and runs the simulations: pulse-sequence evolution, 2D coherence scans, linear spectra, and population-time studies.

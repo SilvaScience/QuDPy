@@ -5,100 +5,6 @@ from matplotlib.colors import Normalize
 import matplotlib.cm as cm
 from scipy.optimize import curve_fit
 
-def multiplot(data=None, scan_range=None, labels=None, title_list=None, scale='linear', color_map='PuOr',
-              interpolation='spline36', center_scale=True):
-    """
-    Plot multiple dataset for spectral and evolution data
-    :param data: List of spectra or dipole expectation values or any other variable of interest. Must be float data type
-    :param scan_range: The min and max of both axis in the format [xmin, xmax, ymin, ymax]
-    :param labels: List of label for each axis
-    :param title_list: List of titles for each plot
-    :param scale: Scaling of the data points, two choices are 'linear' and 'log'
-    :param color_map: Choice of colormap
-    :param interpolation: Interpolation for points in plot.
-    :param center_scale: Shift individual datasets to sent center value to zero.
-    :return: Does not return anything
-    """
-    if data is None:
-        print('Nothing to plot, kindly provide the data')
-        return
-    if scan_range is None:
-        print('Scan range not given')
-        scan_range = [0, 1, 0, 1]
-    if title_list is None:
-        print('titles not given')
-        title_list = [str(x + 1) for x in range(len(data))]
-
-    num_plots = len(data)  # number of plots (depends on the length of data list)
-    if num_plots <= 3:
-        rows = 1
-        cols = num_plots
-    else:
-        rows = int(np.ceil(num_plots / 3))
-        cols = 3
-
-    if center_scale:
-        print('centering data around zero')
-        data = [d-(np.min(d) + np.max(d))/2 for d in data]
-
-    if scale == 'log':
-        data = np.array([log_scale(s) for s in data])
-
-    axes = []
-    fig = plt.figure(figsize=(16, 4))
-    for k in range(num_plots):
-        axes.append(fig.add_subplot(rows, cols, k + 1))
-        subplot_title = (title_list[k])
-        axes[-1].set_title(subplot_title)
-        plt.plot([scan_range[0], scan_range[1]], [scan_range[3], scan_range[2]], '--', color="black", linewidth=0.5)
-        plt.plot([scan_range[0], scan_range[1]], [scan_range[2], scan_range[3]], '--', color="black", linewidth=0.5)
-        im = plt.imshow(data[k], cmap=color_map, origin='lower', interpolation=interpolation, extent=scan_range, aspect=1)
-        if labels:
-            plt.xlabel(labels[0])
-            plt.ylabel(labels[1])
-        plt.colorbar(im, ax=axes[-1])
-
-    fig.tight_layout()
-    plt.show()
-
-    return
-
-
-def plot(data=None, scan_range=None, labels=None, title=None, scale='linear', color_map='viridis', interpolation='spline36'):
-    """
-    Plot singe dataset for spectral and evolution data
-    :param data: Single dataset. Must be float
-    :param scan_range: The min and max of both axis in the format [xmin, xmax, ymin, ymax]
-    :param labels: List of label for each axis
-    :param title: Title the plot
-    :param scale: Scaling of the data points, two choices are 'linear' and 'log'
-    :param color_map: Choice of colormap
-    :param interpolation: Interpolation for points in plot.
-    :return: Does not return anything
-    """
-    if data is None:
-        print('Nothing to plot, kindly provide the data')
-        return
-    if scan_range is None:
-        print('Scan range not given')
-        scan_range = [0, 1, 0, 1]
-
-    plt.figure()
-    if scale == 'log':
-        data = log_scale(data)
-
-    plt.plot([scan_range[0], scan_range[1]], [scan_range[3], scan_range[2]], '--', color="black", linewidth=0.5)
-    plt.plot([scan_range[0], scan_range[1]], [scan_range[2], scan_range[3]], '--', color="black", linewidth=0.5)
-    plt.imshow(data, cmap=color_map, origin='lower', interpolation=interpolation, extent=scan_range, aspect='auto')
-    plt.colorbar()
-    if title:
-        plt.title(title)
-    if labels:
-        plt.xlabel(labels[0])
-        plt.ylabel(labels[1])
-    plt.show()
-
-    return
 
 
 def log_scale(z):
@@ -115,57 +21,6 @@ def log_scale(z):
             else:
                 z[n, m] = -np.log(-z[n, m]+1)
     return z
-
-
-def pop_plot(data=None, scan_range=None, labels=None, title_list=None, scale='linear', color_map='PuOr', interpolation='spline36'):
-    """
-    Plot multiple dataset for spectral and evolution data
-    :param data: List of spectra or dipole expectation values or any other variable of interest
-    :param scan_range: The min and max of both axis in the format [xmin, xmax, ymin, ymax]
-    :param labels: List of label for each axis
-    :param title_list: List of titles for each plot
-    :param scale: Scaling of the data points, two choices are 'linear' and 'log'
-    :param color_map: Choice of colormap
-    :param interpolation: Interpolation for points in plot.
-    :return: Does not return anything
-    """
-    if data is None:
-        print('Nothing to plot, kindly provide the data')
-        return
-    if scan_range is None:
-        print('Scan range not given')
-        scan_range = [0, 1, 0, 1]
-    if title_list is None:
-        print('titles not given')
-        title_list = [str(x + 1) for x in range(len(data))]
-
-    num_plots = len(data)  # number of plots (depends on the length of data list)
-    if num_plots <= 3:
-        rows = 1
-        cols = num_plots
-    else:
-        rows = int(np.ceil(num_plots / 3))
-        cols = 3
-
-    if scale == 'log':
-        data = np.array([log_scale(s.real) for s in data])
-
-    axes = []
-    fig = plt.figure(figsize=(16, 4))
-    for k in range(num_plots):
-        axes.append(fig.add_subplot(rows, cols, k + 1))
-        subplot_title = (title_list[k])
-        axes[-1].set_title(subplot_title)
-        im = plt.imshow(data[k], cmap=color_map, origin='lower', interpolation=interpolation, extent=scan_range, aspect=1)
-        if labels:
-            plt.xlabel(labels[0])
-            plt.ylabel(labels[1])
-        plt.colorbar(im, ax=axes[-1])
-
-    fig.tight_layout()
-    plt.show()
-
-    return
 
 
 def coor(data_x,data_y,z):
@@ -191,21 +46,6 @@ def coor(data_x,data_y,z):
     return index
         
     
-
-def log_scale(z):
-    """
-    Simple function for rescaling the 2D input matrix to log scale.
-    Note: the negative numbers are downshifted by 1 and the positive numbers are upshifted by 1 to remove numbers
-    between -1 and 1.
-    """
-    x, y = np.shape(z)
-    for n in range(x):
-        for m in range(y):
-            if z[n, m] >= 0:
-                z[n, m] = np.log(z[n, m]+1)
-            else:
-                z[n, m] = -np.log(-z[n, m]+1)
-    return z
 
 
 def silva_plot(spectra_list=None,x_val=None,y_val=None, labels=None, title_list=None, scale='linear', color_map='PuOr',

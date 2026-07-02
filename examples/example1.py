@@ -78,7 +78,7 @@ en,T = H.eigenstates()
 
 total_diagrams = rephasing+nonrephasing
 for k in range(6):
-    _, t1, t2, dipole = sys.coherence2d(time_delays, total_diagrams[k], scan_id, r=1, parallel=True)
+    t1, t2, dipole = sys.coherence2d(time_delays, total_diagrams[k], scan_id, r=1, parallel=True)
     response_list.append(1j*dipole)
 spectra_list, extent, f1, f2 = sys.spectra(np.imag(response_list), resolution=1) 
 

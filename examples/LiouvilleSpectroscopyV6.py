@@ -1739,7 +1739,7 @@ class LiouvilleSpectroscopySolver:
             ) @ state
             state = self._solve_resolvent(i_k, w3, state)
             response[i_k] = (
-                -1j
+                -1
                 * pathway.coefficient
                 * self._trace_output(i_k, state)
             )
@@ -2101,11 +2101,33 @@ class LiouvilleSpectroscopySolver:
 
 
 class SpectroscopyPlotter:
-    def __init__(self, w_list):
+    def __init__(self, w_list, detection_phase=np.pi / 2):
+        """
+        Plot complex third-order responses after heterodyne phasing.
+
+        Parameters
+        ----------
+        w_list : array_like
+            Frequency grid.
+        detection_phase : float or None
+            Local-oscillator phase in radians. The default ``pi / 2``
+            converts the polarization response to the emitted-field
+            convention, ``E_sig proportional to 1j * P^(3)``. Use ``0``
+            or ``None`` to inspect the raw polarization returned by the
+            solver, and ``-pi / 2`` for the opposite phase convention.
+        """
         self.w_list = np.asarray(w_list, dtype=float)
+        self.detection_phase = (
+            0.0 if detection_phase is None else float(detection_phase)
+        )
+
+    def _apply_detection_phase(self, data):
+        """Rotate the complex polarization into the detected quadrature."""
+        return np.exp(1j * self.detection_phase) * np.asarray(data)
 
     def _select_component(self, data, component):
-        """Select real, imaginary, or absolute data."""
+        """Apply heterodyne phasing, then select a plotted component."""
+        data = self._apply_detection_phase(data)
         component = str(component).lower()
         aliases = {
             "real": "real",
@@ -2172,8 +2194,8 @@ class SpectroscopyPlotter:
             levels,
             cmap,
             title,
-            xlabel=r"$\omega_1$",
-            ylabel=r"$\omega_3$",
+            xlabel=r"$\omega_3$",
+            ylabel=r"$\omega_1$",
             vmin=0 if normalized_component == "abs" else None,
             colorbar=colorbar,
         )
@@ -2278,8 +2300,8 @@ class SpectroscopyPlotter:
                 levels,
                 cmap,
                 f"{component.capitalize()} / {pathway}",
-                xlabel=r"$\omega_1$",
-                ylabel=r"$\omega_3$",
+                xlabel=r"$\omega_3$",
+                ylabel=r"$\omega_1$",
                 vmin=0 if selected_component == "abs" else None,
             )
         for ax in axes.flat[len(pathways):]:
@@ -2306,6 +2328,8 @@ class SpectroscopyPlotter:
         """
         fig, axes = plt.subplots(3, 2, figsize=figsize)
         w = self.w_list
+        S3_rephasing = self._apply_detection_phase(S3_rephasing)
+        S3_nonrephasing = self._apply_detection_phase(S3_nonrephasing)
 
         self._plot_subplot(
             axes[0, 0],
@@ -2314,7 +2338,7 @@ class SpectroscopyPlotter:
             levels,
             "RdBu_r",
             r"Real / Rephasing",
-            ylabel=r"$\omega_3$",
+            ylabel=r"$\omega_1$",
         )
         self._plot_subplot(
             axes[0, 1],
@@ -2332,7 +2356,7 @@ class SpectroscopyPlotter:
             levels,
             "RdBu_r",
             r"Imaginary / Rephasing",
-            ylabel=r"$\omega_3$",
+            ylabel=r"$\omega_1$",
         )
         self._plot_subplot(
             axes[1, 1],
@@ -2350,8 +2374,8 @@ class SpectroscopyPlotter:
             levels,
             "magma",
             r"Absolute / Rephasing",
-            xlabel=r"$\omega_1$",
-            ylabel=r"$\omega_3$",
+            xlabel=r"$\omega_3$",
+            ylabel=r"$\omega_1$",
             vmin=0,
         )
         self._plot_subplot(
@@ -2361,7 +2385,7 @@ class SpectroscopyPlotter:
             levels,
             "magma",
             r"Absolute / Non-rephasing",
-            xlabel=r"$\omega_1$",
+            xlabel=r"$\omega_3$",
             vmin=0,
         )
 
@@ -2407,3 +2431,175 @@ class SpectroscopyPlotter:
         if colorbar:
             ax.figure.colorbar(contour, ax=ax)
         return contour
+    
+    def plot_pathways_grid(
+        self,
+        pathways_dict,
+        signal_type="rephasing",
+        total_signal=None,
+        w=None,
+        levels=20,
+        save_path=None,
+        show=True,
+        zoom_quadrant=True,
+        zoom_bounds=None,
+        component="all",
+    ):
+        """
+        Trace une grille 3x4 des spectres 2D pour des voies spécifiques.
+        - signal_type : "rephasing" (R1, R2, R3) ou "unrephasing" (R4, R5, R6)
+        - zoom_bounds : tuple optionnel (x_min, x_max, y_min, y_max).
+          Lorsqu'il est fourni, il remplace le zoom automatique par cadran.
+        - component : "all", "real", "imag" ou "abs".
+          Par défaut, les trois rangées sont tracées.
+        """
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        # 1. Vérification de la grille de fréquences
+        if w is None:
+            w = getattr(self, "w", getattr(self, "w_list", None))
+            if w is None:
+                raise ValueError("Le vecteur de fréquences 'w' doit être fourni ou exister dans la classe.")
+
+        if zoom_bounds is not None:
+            if len(zoom_bounds) != 4:
+                raise ValueError(
+                    "zoom_bounds doit contenir "
+                    "(x_min, x_max, y_min, y_max)."
+                )
+            x_min, x_max, y_min, y_max = map(float, zoom_bounds)
+            if not np.all(np.isfinite([x_min, x_max, y_min, y_max])):
+                raise ValueError("Les limites de zoom doivent être finies.")
+            if x_min >= x_max or y_min >= y_max:
+                raise ValueError(
+                    "Les limites doivent vérifier x_min < x_max et "
+                    "y_min < y_max."
+                )
+
+        # 2. Configuration selon le type de signal
+        signal_type = signal_type.lower().replace("-", "")
+        if signal_type == "rephasing":
+            target_keys = ["R1", "R2", "R3"]
+            fallback_keys = [1, 2, 3]
+            display_name = "Rephasing"
+            y_zoom_sign = -1  # Quadrant (x, -y)
+        elif signal_type in ["unrephasing", "nonrephasing"]:
+            target_keys = ["R4", "R5", "R6"]
+            fallback_keys = [4, 5, 6]
+            display_name = "Non-rephasing"
+            y_zoom_sign = 1   # Quadrant (x, y)
+        else:
+            raise ValueError("signal_type doit être 'rephasing' ou 'unrephasing'")
+
+        # 3. Extraction des 3 voies
+        p1 = pathways_dict.get(target_keys[0], pathways_dict.get(fallback_keys[0], None))
+        p2 = pathways_dict.get(target_keys[1], pathways_dict.get(fallback_keys[1], None))
+        p3 = pathways_dict.get(target_keys[2], pathways_dict.get(fallback_keys[2], None))
+
+        if p1 is None or p2 is None or p3 is None:
+            raise ValueError(f"Impossible de trouver toutes les voies {target_keys} dans pathways_dict.")
+
+        # 4. Calcul de la somme si non fournie
+        if total_signal is None:
+            total_signal = p1 + p2 + p3
+
+        columns_data = [
+            self._apply_detection_phase(data)
+            for data in (p1, p2, p3, total_signal)
+        ]
+        columns_labels = [
+            f"_{{{target_keys[0][1:]}}}",  # Transforme "R1" en "_1" pour le LaTeX
+            f"_{{{target_keys[1][1:]}}}",
+            f"_{{{target_keys[2][1:]}}}",
+            r"\text{Total " + display_name + "}"
+        ]
+
+        # 5. Création de la figure
+        component_definitions = {
+            "real": {"name": "Real", "func": np.real, "cmap": "bwr", "vmin": None},
+            "imag": {"name": "Imaginary", "func": np.imag, "cmap": "bwr", "vmin": None},
+            "abs": {"name": "Absolute", "func": np.abs, "cmap": "magma", "vmin": 0},
+        }
+        component_aliases = {
+            "all": "all",
+            "real": "real",
+            "re": "real",
+            "imag": "imag",
+            "imaginary": "imag",
+            "im": "imag",
+            "abs": "abs",
+            "absolute": "abs",
+            "magnitude": "abs",
+        }
+        component_key = component_aliases.get(str(component).lower())
+        if component_key is None:
+            raise ValueError(
+                "component doit être 'all', 'real', 'imag' ou 'abs'."
+            )
+        selected_keys = (
+            ["real", "imag", "abs"]
+            if component_key == "all"
+            else [component_key]
+        )
+        components = [component_definitions[key] for key in selected_keys]
+        n_rows = len(components)
+        fig, axes = plt.subplots(
+            n_rows,
+            4,
+            figsize=(20, 4.7 * n_rows),
+            sharex=True,
+            sharey=True,
+            squeeze=False,
+        )
+
+        # 6. Boucle de tracé
+        for row_idx, comp in enumerate(components):
+            for col_idx, data in enumerate(columns_data):
+                ax = axes[row_idx, col_idx]
+                plot_data = comp["func"](data)
+                
+                # Le formatage des labels dépend du dictionnaire LaTeX
+                if col_idx < 3:
+                    title = f"{comp['name']} / $R{columns_labels[col_idx]}$"
+                else:
+                    title = f"{comp['name']} / ${columns_labels[col_idx]}$"
+
+                xlabel = r"$\omega_3$" if row_idx == n_rows - 1 else None
+                ylabel = r"$\omega_1$" if col_idx == 0 else None
+                
+                self._plot_subplot(
+                    ax=ax,
+                    w=w,
+                    data=plot_data,
+                    levels=levels,
+                    cmap=comp["cmap"],
+                    title=title,
+                    xlabel=xlabel,
+                    ylabel=ylabel,
+                    vmin=comp["vmin"],
+                    colorbar=True
+                )
+                
+                # 7. Zoom explicite ou, par défaut, cadran automatique
+                if zoom_bounds is not None:
+                    ax.set_xlim(x_min, x_max)
+                    ax.set_ylim(y_min, y_max)
+                elif zoom_quadrant:
+                    w_min, w_max = np.min(w), np.max(w)
+                    ax.set_xlim(0, w_max)
+                    if y_zoom_sign == -1:
+                        ax.set_ylim(w_min, 0)
+                    else:
+
+                        ax.set_ylim(0, w_max)
+
+        plt.tight_layout()
+
+        if save_path:
+            fig.savefig(save_path, dpi=300, bbox_inches="tight")
+
+        if show:
+            plt.show()
+
+        return fig, axes

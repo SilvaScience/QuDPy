@@ -1,0 +1,11 @@
+14h35m16
+N2
+Energies  bright=1.0000, dark=1.0000, cavity=0.8000
+detuning strength=-0.2
+light-matter coupling g=0.1350
+bright-dark coupling J=0.0270
+dipole strength  bright=1.0, dark=0.0, cavity=1.0
+dephasing  excitons=0.0090, cavity=0.0540
+decay  bright=0.0450, dark=0.0090, cavity=0.0990
+binding energies  bright-bright=0.0000, bright-dark=0.0500, dark-dark=0.2000
+model=rw

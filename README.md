@@ -1,6 +1,6 @@
-# qudpy
+# Qudpy
 
-# qudpy
+# Qudpy
 
 **Current version: 1.1.0**
 

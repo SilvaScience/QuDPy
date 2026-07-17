@@ -169,7 +169,7 @@ class System:
                 coherence_time = np.linspace(0, delta_t, int(delta_t*r))
                 # evolving each state in the list states and storing only the last state
 
-                states = [mesolve(self.H, state, coherence_time, self.c_ops, e_ops=self.e_ops).states[-1] for state in tqdm(states)]
+                states = [mesolve(self.H, state, coherence_time, self.c_ops, e_ops=self.e_ops).states[-1] for state in states]
 
         
         # Now at this point only last interaction and last scan-able delay is left.

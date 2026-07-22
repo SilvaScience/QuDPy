@@ -346,7 +346,7 @@ class System:
 
         return spectra, extent, f1, f2
 
-    def linear_spec(self, scan_time: int, diagram=None, r=10, plot_graph=True, title_graph=None, dir="results"):
+    def linear_spec(self, scan_time: int, diagram=None, r=10, plot_graph=True, title_graph=None, dir="results", progress_bar_=True):
         """
         For computing simple linear spectra from the system after any number of interaction in the start.
         Note: for increasing the frequency resolution, simply increase the scan_time. For decreasing the range of
@@ -365,9 +365,12 @@ class System:
         else:
             rho = self.rho * self.a
             # linear response is created by 'Bu' action on rho initial, alternatively we can apply
-
-        dipole = mesolve(self.H, rho, t_list, self.c_ops, e_ops=[self.u], options={"progress_bar": "tqdm",
-                            "progress_kwargs": {"chunk_size": 1}}).expect[0]
+        if progress_bar_ == False:
+            dipole = mesolve(self.H, rho, t_list, self.c_ops, e_ops=[self.u]).expect[0]
+        else:
+            dipole = mesolve(self.H, rho, t_list, self.c_ops, e_ops=[self.u], options={"progress_bar": "tqdm",
+                                                                                       "progress_kwargs": {
+                                                                                           "chunk_size": 1}}).expect[0]
 
         plt.figure(figsize=(16, 6))
         plt.plot(t_list, np.imag(dipole))
